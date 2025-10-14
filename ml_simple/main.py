@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM, Conv1D, Flatten, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
 
 # --- Data Preparation ---
 def create_dataset(X, y, look_back=1):
@@ -78,15 +79,21 @@ for i in range(len(unique_years) - 1):
         "Linear Regression": LinearRegression(),
         "Decision Tree": DecisionTreeRegressor(random_state=42),
         "Random Forest": RandomForestRegressor(random_state=42, n_estimators=100),
-        "LSTM": create_lstm_model((X_train.shape[1], X_train.shape[2])),
-        "CNN": create_cnn_model((X_train.shape[1], X_train.shape[2]))
+        "LSTM": create_lstm_model((X_train.shape[1], X_train.shape[2]))#,
+        #"CNN": create_cnn_model((X_train.shape[1], X_train.shape[2]))
     }
 
     for name, model in models.items():
         print(f"--- Training {name} ---")
 
         if name in ["LSTM", "CNN"]:
-            model.fit(X_train, y_train, epochs=50, batch_size=32, verbose=1)
+            early_stopping = EarlyStopping(monitor='val_loss', patience=2, restore_best_weights=True)
+            model.fit(X_train, y_train, 
+                      epochs=50, 
+                      batch_size=32, 
+                      verbose=1,
+                      validation_data=(X_eval, y_eval),
+                      callbacks=[early_stopping])
             predictions = model.predict(X_eval, verbose=0).flatten()
         else:
             model.fit(X_train_flat, y_train)

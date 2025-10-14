@@ -109,3 +109,13 @@ venv.bak/
 mlruns/
 mlflow_artifacts/
 mlflow.db
+
+ml_simple_qwen/outputs/
+
+ml_ohlc_prediction_qwen/results/
+
+ml_ohlc_prediction_qwen/ml_venv/
+
+ml_ohlc_prediction_qwen/data/
+
+ml_simple/data/
