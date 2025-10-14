@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  mlflow:
+    image: python:3.9-slim
+    container_name: mlflow_server
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/app/mlruns
+      - ./models:/app/models
+    working_dir: /app
+    command: >
+      sh -c "
+        pip install mlflow==2.8.1 &&
+        mlflow server 
+        --host 0.0.0.0 
+        --port 5000 
+        --backend-store-uri sqlite:///mlflow.db 
+        --default-artifact-root ./mlruns
+      "
+    environment:
+      - MLFLOW_TRACKING_URI=http://localhost:5000
+    networks:
+      - ohlc_network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ohlc_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./config:/app/config
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    depends_on:
+      - mlflow
+    networks:
+      - ohlc_network
+
+  jupyter:
+    image: jupyter/scipy-notebook:latest
+    container_name: ohlc_jupyter
+    ports:
+      - "8888:8888"
+    volumes:
+      - .:/home/jovyan/work
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+    networks:
+      - ohlc_network
+
+networks:
+  ohlc_network:
+    driver: bridge
+
+volumes:
+  mlflow_data:
+  model_data:

@@ -1,0 +1,42 @@
+# Core ML libraries
+pandas
+numpy
+scikit-learn
+tensorflow
+torch
+xgboost
+
+# MLflow and experiment tracking
+mlflow
+mlflow-skinny
+
+# Data acquisition and APIs
+yfinance
+alpha-vantage
+requests
+
+# Data visualization
+matplotlib
+seaborn
+plotly
+
+# Technical analysis
+ta
+talipp
+
+# Utilities
+python-dotenv
+pyyaml
+joblib
+tqdm
+
+# API and web service
+fastapi
+uvicorn
+pydantic
+
+# Development and testing
+jupyter
+pytest
+black
+flake8

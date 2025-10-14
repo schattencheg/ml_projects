@@ -1,0 +1,95 @@
+data:
+  sources:
+    yahoo_finance:
+      enabled: true
+      symbols: ["AAPL", "GOOGL", "MSFT", "TSLA", "AMZN"]
+      period: "2y"
+      interval: "1d"
+    
+    alpha_vantage:
+      enabled: false
+      function: "TIME_SERIES_DAILY"
+      outputsize: "full"
+
+  preprocessing:
+    fill_method: "forward"
+    remove_outliers: true
+    outlier_threshold: 3.0
+    min_periods: 30
+
+features:
+  technical_indicators:
+    - name: "SMA"
+      periods: [5, 10, 20, 50, 200]
+    - name: "EMA"
+      periods: [12, 26]
+    - name: "RSI"
+      period: 14
+    - name: "MACD"
+      fast: 12
+      slow: 26
+      signal: 9
+    - name: "Bollinger_Bands"
+      period: 20
+      std: 2
+    - name: "ATR"
+      period: 14
+    - name: "Volume_SMA"
+      periods: [10, 20]
+
+  custom_features:
+    - price_change_pct
+    - volume_change_pct
+    - high_low_ratio
+    - close_open_ratio
+    - volatility_7d
+    - volatility_30d
+
+models:
+  lstm:
+    sequence_length: 60
+    hidden_units: [128, 64, 32]
+    dropout: 0.2
+    epochs: 100
+    batch_size: 32
+    learning_rate: 0.001
+    
+  random_forest:
+    n_estimators: 100
+    max_depth: 10
+    min_samples_split: 5
+    min_samples_leaf: 2
+    random_state: 42
+    
+  xgboost:
+    n_estimators: 100
+    max_depth: 6
+    learning_rate: 0.1
+    subsample: 0.8
+    colsample_bytree: 0.8
+    random_state: 42
+
+training:
+  test_size: 0.2
+  validation_size: 0.1
+  cross_validation_folds: 5
+  target_columns: ["Open", "High", "Low", "Close"]
+  prediction_horizon: 5
+
+mlflow:
+  experiment_name: "ohlc_prediction"
+  tracking_uri: "http://127.0.0.1:5000"
+  artifact_location: "./mlruns"
+  
+evaluation:
+  metrics:
+    - "mae"
+    - "mse"
+    - "rmse"
+    - "mape"
+    - "r2_score"
+  
+  plots:
+    - "prediction_vs_actual"
+    - "residuals"
+    - "feature_importance"
