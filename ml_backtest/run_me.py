@@ -13,8 +13,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src', 'Background'))
 from backtesting import Backtest, Strategy
 from backtesting.lib import crossover
 from backtesting.test import SMA
-from DataProvider import DataProvider
-from enums import DataPeriod, DataResolution
+from src.Background.enums import DataPeriod, DataResolution
+from src.Data.DataProvider import DataProvider
+from src.Data.DataProviderLocal import DataProviderLocal
 
 
 class SmaCrossStrategy(Strategy):
