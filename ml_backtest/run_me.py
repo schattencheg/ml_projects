@@ -51,6 +51,11 @@ def main():
     
     # Step 1: Load data using DataProvider
     print("Loading data...")
+    # Local data provider
+    data_provider_local = DataProviderLocal()
+    instruments_local = data_provider_local.get_instruments_local()
+    instruments_local_detailed = data_provider_local.get_instruments_local_detailed()
+    # Remote data provider
     data_provider = DataProvider(
         tickers=['BTC-USD'],
         resolution=DataResolution.DAY_01,
