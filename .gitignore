@@ -119,3 +119,7 @@ ml_ohlc_prediction_qwen/ml_venv/
 ml_ohlc_prediction_qwen/data/
 
 ml_simple/data/
+
+data_server/data/
+
+ml_backtest/Output/
