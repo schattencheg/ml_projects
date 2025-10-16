@@ -792,3 +792,227 @@ class DataProvider:
         except Exception as e:
             logging.error(f"Error reading data file {data_file}: {e}")
             return None
+    
+    @staticmethod
+    def check_data_needs_update(ticker: str, resolution: DataResolution, data_dir: str = 'data', 
+                                max_age_days: int = 7) -> Tuple[bool, Optional[str]]:
+        """
+        Check if locally stored data needs updating
+        
+        Args:
+            ticker: Ticker symbol
+            resolution: Data resolution
+            data_dir: Path to the data directory
+            max_age_days: Maximum age in days before data is considered outdated
+            
+        Returns:
+            Tuple of (needs_update: bool, reason: str or None)
+        """
+        data_info = DataProvider.get_local_data_info(ticker, resolution, data_dir)
+        
+        if not data_info:
+            return True, "No local data found"
+        
+        try:
+            # Parse end date
+            end_date = pd.to_datetime(data_info['end_date'])
+            current_date = pd.Timestamp.now()
+            
+            # Calculate age in days
+            age_days = (current_date - end_date).days
+            
+            if age_days > max_age_days:
+                return True, f"Data is {age_days} days old (max: {max_age_days})"
+            
+            return False, None
+            
+        except Exception as e:
+            logging.error(f"Error checking data age: {e}")
+            return True, f"Error checking data age: {e}"
+    
+    @staticmethod
+    def update_local_data(ticker: str, resolution: DataResolution, period: DataPeriod,
+                         data_dir: str = 'data') -> Tuple[pd.DataFrame, str]:
+        """
+        Update local data by fetching missing records
+        
+        Args:
+            ticker: Ticker symbol
+            resolution: Data resolution
+            period: Data period
+            data_dir: Path to the data directory
+            
+        Returns:
+            Tuple of (updated_dataframe, status_message)
+        """
+        from src.Data.DataLoader import DataLoaderCCXT
+        
+        resolution_dir = os.path.join(data_dir, resolution.name)
+        data_file = os.path.join(resolution_dir, f"{ticker}.csv")
+        
+        # Load existing data
+        if os.path.exists(data_file):
+            existing_df = pd.read_csv(data_file, index_col=0)
+            existing_df.index = pd.to_datetime(existing_df.index)
+            
+            # Get the last date in existing data
+            last_date = existing_df.index[-1]
+            
+            # Create data loader and fetch new data from last_date
+            loader = DataLoaderCCXT([ticker], resolution, period)
+            new_data = loader.data_request_by_ticker(ticker, ts=last_date.date())
+            
+            if new_data is not None and not new_data.empty:
+                # Remove duplicates and merge
+                new_data = new_data[new_data.index > last_date]
+                
+                if not new_data.empty:
+                    # Combine old and new data
+                    updated_df = pd.concat([existing_df, new_data])
+                    updated_df = updated_df[~updated_df.index.duplicated(keep='last')]
+                    updated_df = updated_df.sort_index()
+                    
+                    # Save updated data
+                    if not os.path.exists(resolution_dir):
+                        os.makedirs(resolution_dir)
+                    updated_df.to_csv(data_file)
+                    
+                    message = f"Updated {ticker}: Added {len(new_data)} new records from {new_data.index[0]} to {new_data.index[-1]}"
+                    logging.info(message)
+                    return updated_df, message
+                else:
+                    message = f"{ticker}: Data is already up to date"
+                    logging.info(message)
+                    return existing_df, message
+            else:
+                message = f"{ticker}: No new data available"
+                logging.info(message)
+                return existing_df, message
+        else:
+            # No existing data, download fresh
+            loader = DataLoaderCCXT([ticker], resolution, period)
+            new_data = loader.data_request_by_ticker(ticker)
+            
+            if new_data is not None and not new_data.empty:
+                if not os.path.exists(resolution_dir):
+                    os.makedirs(resolution_dir)
+                new_data.to_csv(data_file)
+                
+                message = f"Downloaded {ticker}: {len(new_data)} records from {new_data.index[0]} to {new_data.index[-1]}"
+                logging.info(message)
+                return new_data, message
+            else:
+                message = f"{ticker}: Failed to download data"
+                logging.error(message)
+                return pd.DataFrame(), message
+    
+    @staticmethod
+    def get_local_instruments_detailed(data_dir: str = 'data') -> Dict:
+        """
+        Get comprehensive information about all local instruments including:
+        - Instrument type (crypto or stock)
+        - Available resolutions
+        - Time range for each resolution
+        - Row counts
+        - File sizes
+        
+        Args:
+            data_dir: Path to the data directory
+            
+        Returns:
+            Dictionary with detailed instrument information
+        """
+        instruments_info = {}
+        
+        # Crypto patterns (common crypto tickers)
+        crypto_patterns = ['BTC', 'ETH', 'DOGE', 'ADA', 'SOL', 'XRP', 'LTC', 'DOT', 'LINK', 'UNI',
+                          'USDT', 'USDC', 'BNB', 'MATIC', 'AVAX', 'SHIB', 'TRX', 'ATOM', 'XLM']
+        
+        # Resolution directory name to resolution value mapping
+        resolution_map = {
+            'minute_01': '1m',
+            'minute_02': '2m',
+            'minute_05': '5m',
+            'minute_15': '15m',
+            'minute_30': '30m',
+            'minute_60': '60m',
+            'minute_90': '90m',
+            'hour_01': '1h',
+            'day_01': '1d',
+            'day_05': '5d',
+            'week': '1wk',
+            'month_01': '1mo',
+            'month_03': '3mo',
+        }
+        
+        # Scan all resolution directories
+        if os.path.exists(data_dir):
+            for resolution_dir in os.listdir(data_dir):
+                resolution_path = os.path.join(data_dir, resolution_dir)
+                
+                if os.path.isdir(resolution_path):
+                    # List all CSV files in this resolution directory
+                    csv_files = [f for f in os.listdir(resolution_path) if f.endswith('.csv')]
+                    
+                    for csv_file in csv_files:
+                        ticker = csv_file[:-4]  # Remove .csv extension
+                        file_path = os.path.join(resolution_path, csv_file)
+                        
+                        # Determine instrument type
+                        ticker_upper = ticker.upper().replace('-', '').replace('_', '')
+                        is_crypto = any(pattern in ticker_upper for pattern in crypto_patterns)
+                        instrument_type = 'crypto' if is_crypto else 'stock'
+                        
+                        # Get resolution value
+                        resolution = resolution_map.get(resolution_dir.lower(), resolution_dir)
+                        
+                        # Initialize instrument info if not exists
+                        if ticker not in instruments_info:
+                            instruments_info[ticker] = {
+                                'ticker': ticker,
+                                'type': instrument_type,
+                                'resolutions': {}
+                            }
+                        
+                        # Read file to get details
+                        try:
+                            file_size = os.path.getsize(file_path)
+                            df = pd.read_csv(file_path, index_col=0)
+                            
+                            if len(df) > 0:
+                                instruments_info[ticker]['resolutions'][resolution] = {
+                                    'rows': len(df),
+                                    'start_date': str(df.index[0]),
+                                    'end_date': str(df.index[-1]),
+                                    'file_size_bytes': file_size,
+                                    'file_size_mb': round(file_size / (1024 * 1024), 2),
+                                    'columns': list(df.columns)
+                                }
+                        except Exception as e:
+                            logging.error(f"Error reading {file_path}: {e}")
+                            instruments_info[ticker]['resolutions'][resolution] = {
+                                'error': str(e)
+                            }
+        
+        # Convert to list format and add summary statistics
+        instruments_list = list(instruments_info.values())
+        
+        # Calculate summary statistics
+        total_instruments = len(instruments_list)
+        crypto_count = sum(1 for inst in instruments_list if inst['type'] == 'crypto')
+        stock_count = sum(1 for inst in instruments_list if inst['type'] == 'stock')
+        
+        # Get all unique resolutions
+        all_resolutions = set()
+        for inst in instruments_list:
+            all_resolutions.update(inst['resolutions'].keys())
+        
+        return {
+            'instruments': instruments_list,
+            'summary': {
+                'total_instruments': total_instruments,
+                'crypto_count': crypto_count,
+                'stock_count': stock_count,
+                'resolutions': sorted(list(all_resolutions))
+            }
+        }

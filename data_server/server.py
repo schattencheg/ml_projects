@@ -27,13 +27,42 @@ import config
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
+# In-memory log storage for web dashboard
+class InMemoryLogHandler(logging.Handler):
+    def __init__(self, max_logs=100):
+        super().__init__()
+        self.logs = []
+        self.max_logs = max_logs
+    
+    def emit(self, record):
+        log_entry = {
+            'timestamp': datetime.fromtimestamp(record.created).isoformat(),
+            'level': record.levelname,
+            'message': self.format(record)
+        }
+        self.logs.append(log_entry)
+        # Keep only last max_logs entries
+        if len(self.logs) > self.max_logs:
+            self.logs.pop(0)
+    
+    def get_logs(self):
+        return self.logs
+    
+    def clear_logs(self):
+        self.logs.clear()
+
+# Create in-memory log handler
+memory_handler = InMemoryLogHandler(max_logs=200)
+memory_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(config.LOG_FILE),
-        logging.StreamHandler()
+        logging.StreamHandler(),
+        memory_handler
     ]
 )
 logger = logging.getLogger(__name__)
@@ -113,8 +142,11 @@ def api_info():
         'description': 'REST API for OHLC data - crypto and regular market instruments',
         'endpoints': {
             '/api/health': 'Health check',
+            '/api/logs': 'Get recent log messages',
+            '/api/logs/clear': 'Clear log messages',
             '/api/instruments': 'List all available instruments',
             '/api/local-instruments': 'List locally cached instruments',
+            '/api/local-instruments-detailed': 'Get detailed info about all local instruments (type, resolutions, time ranges)',
             '/api/local-data/<ticker>': 'Get info about locally cached data for a ticker',
             '/api/resolutions': 'List all available resolutions',
             '/api/periods': 'List all available periods',
@@ -140,6 +172,30 @@ def health():
         'timestamp': datetime.now().isoformat(),
         'data_dir': config.DATA_DIR,
         'cached_providers': len(data_providers)
+    })
+
+
+@app.route('/api/logs')
+def get_logs():
+    """Get recent log messages"""
+    limit = request.args.get('limit', type=int, default=50)
+    logs = memory_handler.get_logs()
+    
+    # Return last 'limit' logs
+    return jsonify({
+        'logs': logs[-limit:] if limit > 0 else logs,
+        'total': len(logs)
+    })
+
+
+@app.route('/api/logs/clear', methods=['POST'])
+def clear_logs():
+    """Clear log messages"""
+    memory_handler.clear_logs()
+    logger.info("Logs cleared")
+    return jsonify({
+        'status': 'success',
+        'message': 'Logs cleared'
     })
 
 
@@ -253,6 +309,41 @@ def get_local_data_info(ticker: str):
         }), 500
 
 
+@app.route('/api/local-instruments-detailed')
+def list_local_instruments_detailed():
+    """
+    Get comprehensive information about all local instruments including:
+    - Instrument type (crypto or stock)
+    - Available resolutions for each instrument
+    - Time range for each resolution
+    - Row counts and file sizes
+    """
+    try:
+        logger.info("Fetching detailed local instruments information...")
+        
+        # Use DataProvider static method
+        detailed_info = DataProvider.get_local_instruments_detailed(config.DATA_DIR)
+        
+        logger.info(f"Found {detailed_info['summary']['total_instruments']} instruments: "
+                   f"{detailed_info['summary']['crypto_count']} crypto, "
+                   f"{detailed_info['summary']['stock_count']} stocks")
+        
+        return jsonify(detailed_info)
+        
+    except Exception as e:
+        logger.error(f"Error getting detailed local instruments: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': str(e),
+            'instruments': [],
+            'summary': {
+                'total_instruments': 0,
+                'crypto_count': 0,
+                'stock_count': 0,
+                'resolutions': []
+            }
+        }), 500
+
+
 @app.route('/api/data/<ticker>')
 def get_data(ticker: str):
     """
@@ -280,18 +371,37 @@ def get_data(ticker: str):
         
         logger.info(f"Data request: ticker={ticker}, resolution={resolution}, period={period}, local_only={local_only}")
         
-        # Get resolution enum
+        # Get resolution and period enums
         resolution_enum = get_resolution_enum(resolution)
+        period_enum = get_period_enum(period)
         
-        # Check if data exists locally using DataProvider static method
+        # Check if data exists locally
         data_exists = DataProvider.check_local_data_exists(ticker, resolution_enum, config.DATA_DIR)
         
         if data_exists:
-            logger.info(f"Loading data from local cache for {ticker}")
-            # Get or create provider to load data
-            provider = get_or_create_provider(ticker, resolution, period)
-            df = provider.data_load_by_ticker(ticker)
+            # Check if data needs updating (max age: 7 days)
+            needs_update, reason = DataProvider.check_data_needs_update(
+                ticker, resolution_enum, config.DATA_DIR, max_age_days=7
+            )
+            
+            if needs_update and not local_only:
+                logger.info(f"{ticker}: {reason}. Updating data...")
+                # Update local data with missing records
+                df, update_message = DataProvider.update_local_data(
+                    ticker, resolution_enum, period_enum, config.DATA_DIR
+                )
+                logger.info(update_message)
+            else:
+                if needs_update and local_only:
+                    logger.warning(f"{ticker}: {reason}, but local-only mode is enabled")
+                else:
+                    logger.info(f"{ticker}: Data is up to date")
+                
+                # Load existing data
+                provider = get_or_create_provider(ticker, resolution, period)
+                df = provider.data_load_by_ticker(ticker)
         else:
+            # No local data exists
             if local_only:
                 logger.warning(f"Local-only mode: No data found for {ticker}")
                 return jsonify({
@@ -302,12 +412,12 @@ def get_data(ticker: str):
                     'suggestion': 'Disable local-only mode to download data'
                 }), 404
             else:
-                logger.info(f"Downloading new data for {ticker}")
-                # Get or create provider to download data
-                provider = get_or_create_provider(ticker, resolution, period)
-                df = provider.data_request_by_ticker(ticker)
-                provider.data[ticker] = df
-                provider.data_save_by_ticker(ticker)
+                logger.info(f"No local data found for {ticker}. Downloading...")
+                # Download fresh data
+                df, download_message = DataProvider.update_local_data(
+                    ticker, resolution_enum, period_enum, config.DATA_DIR
+                )
+                logger.info(download_message)
         
         # Filter by date range if provided
         if start_date:
