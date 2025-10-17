@@ -39,7 +39,7 @@ class SmaCrossStrategy(Strategy):
         """Execute trading logic on each bar"""
         # If fast MA crosses above slow MA, buy with 95% of available cash
         if crossover(self.sma_fast, self.sma_slow):
-            self.buy(size=0.95)
+            self.buy(size=0.00000001)
         
         # If fast MA crosses below slow MA, sell all
         elif crossover(self.sma_slow, self.sma_fast):
