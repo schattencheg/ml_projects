@@ -74,7 +74,7 @@ def main():
     bt = Backtest(
         df,
         SmaCrossStrategy,
-        cash=100000,  # Starting capital ($100k for BTC trading)
+        cash=10000000,  # Starting capital ($100k for BTC trading)
         commission=0.002,  # 0.2% commission per trade
         exclusive_orders=True
     )
