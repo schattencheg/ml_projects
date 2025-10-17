@@ -53,17 +53,7 @@ def main():
     print("Loading data...")
     # Local data provider
     data_provider_local = DataProviderLocal()
-    instruments_local = data_provider_local.get_instruments_local()
-    instruments_local_detailed = data_provider_local.get_instruments_local_detailed()
-    # Remote data provider
-    data_provider = DataProvider(
-        tickers=['BTC-USD'],
-        resolution=DataResolution.DAY_01,
-        period=DataPeriod.YEAR_02  # Last 2 years of data
-    )
-    
-    # Request data for BTC-USD
-    df = data_provider.data_request_by_ticker('BTC-USD')
+    data = data_provider_local.get_data_socket('BTC_USDT', DataResolution.MINUTE_01, DataPeriod.YEAR_01)
     
     # Prepare data for backtesting (requires specific column names)
     # Backtesting.py expects: Open, High, Low, Close, Volume

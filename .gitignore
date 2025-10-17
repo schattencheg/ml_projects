@@ -123,3 +123,5 @@ ml_simple/data/
 data_server/data/
 
 ml_backtest/Output/
+
+garbage/

@@ -15,6 +15,7 @@ from typing import Optional, Dict, List
 import pandas as pd
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -26,6 +27,7 @@ import config
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
+socketio = SocketIO(app, cors_allowed_origins="*")  # Enable WebSocket with CORS
 
 # In-memory log storage for web dashboard
 class InMemoryLogHandler(logging.Handler):
@@ -646,15 +648,190 @@ def get_batch_data():
         }), 500
 
 
+# WebSocket event handlers
+@socketio.on('connect')
+def handle_connect():
+    """Handle client connection"""
+    logger.info(f"Client connected: {request.sid}")
+    emit('connection_response', {'status': 'connected', 'message': 'Connected to Data Provider Server'})
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection"""
+    logger.info(f"Client disconnected: {request.sid}")
+
+
+@socketio.on('get_data')
+def handle_get_data(data):
+    """
+    Handle real-time data request via WebSocket
+    
+    Expected data format:
+    {
+        'ticker': 'BTC-USD',
+        'resolution': '1d',
+        'period': 'max',
+        'limit': 100,
+        'local_only': True
+    }
+    """
+    try:
+        ticker = data.get('ticker', '').upper()
+        resolution = data.get('resolution', config.DEFAULT_RESOLUTION)
+        period = data.get('period', config.DEFAULT_PERIOD)
+        limit = data.get('limit')
+        local_only = data.get('local_only', False)
+        
+        if not ticker:
+            emit('data_error', {'error': 'Ticker is required'})
+            return
+        
+        logger.info(f"WebSocket request for {ticker} (resolution={resolution}, period={period}, local_only={local_only})")
+        
+        provider = get_or_create_provider(ticker, resolution, period)
+        data_file = os.path.join(provider.dir_data, f"{ticker}.csv")
+        
+        # Check if data exists locally
+        if os.path.exists(data_file):
+            df = provider.data_load_by_ticker(ticker)
+        elif local_only:
+            emit('data_error', {
+                'error': f'No local data available for {ticker}',
+                'ticker': ticker
+            })
+            return
+        else:
+            # Download data if not in local_only mode
+            emit('data_status', {'status': 'downloading', 'ticker': ticker})
+            df = provider.data_request_by_ticker(ticker)
+            provider.data[ticker] = df
+            provider.data_save_by_ticker(ticker)
+        
+        # Apply limit if provided
+        if limit:
+            df = df.tail(limit)
+        
+        # Convert datetime index to string
+        df.index = df.index.strftime('%Y-%m-%d %H:%M')
+
+        # Send data back to client
+        response_data = {
+            'ticker': ticker,
+            'resolution': resolution,
+            'period': period,
+            'rows': len(df),
+            'start_date': str(df.index[0]) if len(df) > 0 else None,
+            'end_date': str(df.index[-1]) if len(df) > 0 else None,
+            'columns': df.reset_index().columns.tolist(),
+            'data': df.reset_index().to_dict(orient='records')
+        }
+        
+        emit('data_response', response_data)
+        logger.info(f"WebSocket response sent for {ticker}: {len(df)} rows")
+        print(f"WebSocket response sent for {ticker}: {len(df)} rows")
+        
+    except Exception as e:
+        logger.error(f"WebSocket error: {str(e)}", exc_info=True)
+        emit('data_error', {'error': str(e), 'ticker': data.get('ticker', 'unknown')})
+
+
+@socketio.on('get_batch_data')
+def handle_get_batch_data(data):
+    """
+    Handle batch data request via WebSocket
+    
+    Expected data format:
+    {
+        'tickers': ['BTC-USD', 'ETH-USD', 'SPY'],
+        'resolution': '1d',
+        'period': '1y',
+        'limit': 100,
+        'local_only': False
+    }
+    """
+    try:
+        tickers = data.get('tickers', [])
+        resolution = data.get('resolution', config.DEFAULT_RESOLUTION)
+        period = data.get('period', config.DEFAULT_PERIOD)
+        limit = data.get('limit')
+        local_only = data.get('local_only', False)
+        
+        if not tickers:
+            emit('batch_error', {'error': 'Tickers list is required'})
+            return
+        
+        logger.info(f"WebSocket batch request for {len(tickers)} tickers")
+        
+        results = {}
+        errors = {}
+        
+        for ticker in tickers:
+            try:
+                ticker = ticker.upper()
+                emit('batch_progress', {
+                    'status': 'processing',
+                    'ticker': ticker,
+                    'progress': f"{len(results) + len(errors) + 1}/{len(tickers)}"
+                })
+                
+                provider = get_or_create_provider(ticker, resolution, period)
+                data_file = os.path.join(provider.dir_data, f"{ticker}.csv")
+                
+                if os.path.exists(data_file):
+                    df = provider.data_load_by_ticker(ticker)
+                elif local_only:
+                    errors[ticker] = f'No local data available for {ticker}'
+                    continue
+                else:
+                    df = provider.data_request_by_ticker(ticker)
+                    provider.data[ticker] = df
+                    provider.data_save_by_ticker(ticker)
+                
+                if limit:
+                    df = df.tail(limit)
+                
+                results[ticker] = {
+                    'rows': len(df),
+                    'start_date': str(df.index[0]) if len(df) > 0 else None,
+                    'end_date': str(df.index[-1]) if len(df) > 0 else None,
+                    'data': df.reset_index().to_dict(orient='records')
+                }
+                
+            except Exception as e:
+                logger.error(f"Error processing {ticker}: {str(e)}")
+                errors[ticker] = str(e)
+        
+        # Send final batch response
+        emit('batch_response', {
+            'resolution': resolution,
+            'period': period,
+            'results': results,
+            'errors': errors if errors else None,
+            'success_count': len(results),
+            'error_count': len(errors)
+        })
+        
+        logger.info(f"WebSocket batch response sent: {len(results)} successful, {len(errors)} errors")
+        
+    except Exception as e:
+        logger.error(f"WebSocket batch error: {str(e)}", exc_info=True)
+        emit('batch_error', {'error': str(e)})
+
+
 if __name__ == '__main__':
     logger.info(f"Starting Data Provider Server on {config.HOST}:{config.PORT}")
     logger.info(f"Data directory: {config.DATA_DIR}")
+    logger.info("WebSocket support enabled")
     
     # Create data directory if it doesn't exist
     os.makedirs(config.DATA_DIR, exist_ok=True)
     
-    app.run(
+    # Use socketio.run instead of app.run for WebSocket support
+    socketio.run(
+        app,
         host=config.HOST,
         port=config.PORT,
-        debug=True
+        debug=True,
+        allow_unsafe_werkzeug=True
     )
