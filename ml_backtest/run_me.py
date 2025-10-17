@@ -53,12 +53,18 @@ def main():
     print("Loading data...")
     # Local data provider
     data_provider_local = DataProviderLocal()
-    data = data_provider_local.get_data_socket('BTC_USDT', DataResolution.MINUTE_01, DataPeriod.YEAR_01)
+    # Dataset downloaded from https://storage.googleapis.com/kagglesdsdata/datasets/1346/13409152/btcusd_1-min_data.csv?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=gcp-kaggle-com%40kaggle-161607.iam.gserviceaccount.com%2F20251017%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20251017T090350Z&X-Goog-Expires=259200&X-Goog-SignedHeaders=host&X-Goog-Signature=00f7e0a1e7752ad26cbd57a9c3a9e4f17ae1fc557ed3bca00421ce55ff3fa8798d42c319b488d2ca0e0d9a4ca6c2c76e6793ba493e67846b7bf947cf892d07a3db4be5c75cec15f92381e8f90c2979bd8092f156e7404f4524e54acfdd43fe02e163ab2f91147bf8692be1afe9aff16f4d29a24eb6ebe03fec04811e57fb1b47d3bf2543fd0b6147ee2d0d49f26860d08464500856c79db377e0c5d13b39bb1b887c425a30392ebe4279560736d1b26b2bbae6d2bb74e2cd4bf3bbcdd6b8ddc5891ced3f88d800bfd2540cc781186b6ddf6cb8b5685b28d79733f929fdd654339ba895801ac3389bfd99ef2742ccb4a21dd9ebf68fbf0660a90f1f6c3d4b050a
+    df = data_provider_local.get_data_socket('BTC_2024', DataResolution.MINUTE_01, DataPeriod.YEAR_01)
     
+    if df is None:
+        return
+
     # Prepare data for backtesting (requires specific column names)
     # Backtesting.py expects: Open, High, Low, Close, Volume
+    if 'Timestamp' in df.columns:
+        df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+        df.set_index('Timestamp', inplace=True)
     df.columns = [col.capitalize() for col in df.columns]
-    df.index = pd.to_datetime(df.index)
     
     print(f"Data loaded: {len(df)} rows from {df.index[0]} to {df.index[-1]}")
     print(f"\nData preview:\n{df.head()}")
