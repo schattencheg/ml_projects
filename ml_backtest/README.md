@@ -2,11 +2,13 @@
 
 This project demonstrates simple trading strategies using the `backtesting.py` module with data provided by the custom `DataProvider` module.
 
-> 🚀 **Quick Start:** [**GETTING_STARTED.md**](GETTING_STARTED.md) - Get your first backtest running in 5 minutes!
+> 🚀 **Quick Start:** [**GETTING_STARTED.md**](docs/GETTING_STARTED.md) - Get your first backtest running in 5 minutes!
 > 
-> 📖 **New to backtesting?** Check out the [**EXAMPLES_GUIDE.md**](EXAMPLES_GUIDE.md) for a detailed walkthrough of all examples!
+> 📖 **New to backtesting?** Check out the [**EXAMPLES_GUIDE.md**](docs/EXAMPLES_GUIDE.md) for a detailed walkthrough of all examples!
 >
-> 📊 **MLflow Tracking:** [**MLFLOW_GUIDE.md**](MLFLOW_GUIDE.md) - Track all your ML experiments with structured naming!
+> 📊 **MLflow Tracking:** [**MLFLOW_GUIDE.md**](docs/MLFLOW_GUIDE.md) - Track all your ML experiments with structured naming!
+>
+> 🤖 **ML Training:** [**BACKTEST_ML_GUIDE.md**](docs/BACKTEST_ML_GUIDE.md) - Save backtest results and prepare ML training data!
 
 ## Strategy Overview
 

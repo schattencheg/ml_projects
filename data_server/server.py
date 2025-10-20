@@ -10,6 +10,10 @@ if 'real_prefix' not in sys.__dict__:
     sys.real_prefix = sys.prefix    
 
 import logging
+import subprocess
+import socket
+import time
+import requests
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 import pandas as pd
@@ -573,6 +577,48 @@ def clear_cache():
         }), 500
 
 
+@app.route('/api/mlflow/status', methods=['GET'])
+def mlflow_status():
+    """Check MLflow server status and connectivity"""
+    try:
+        if not config.MLFLOW_ENABLED:
+            return jsonify({
+                'enabled': False,
+                'message': 'MLflow integration is disabled in config'
+            })
+        
+        mlflow_url = f"http://{config.MLFLOW_HOST}:{config.MLFLOW_PORT}"
+        
+        # Test connection to MLflow server
+        is_running = is_mlflow_server_running(config.MLFLOW_HOST, config.MLFLOW_PORT)
+        
+        if is_running:
+            return jsonify({
+                'enabled': True,
+                'status': 'running',
+                'url': mlflow_url,
+                'host': config.MLFLOW_HOST,
+                'port': config.MLFLOW_PORT,
+                'message': 'MLflow server is running and accessible'
+            })
+        else:
+            return jsonify({
+                'enabled': True,
+                'status': 'unreachable',
+                'url': mlflow_url,
+                'host': config.MLFLOW_HOST,
+                'port': config.MLFLOW_PORT,
+                'message': 'MLflow server is not responding. It may still be starting up or not running.'
+            }), 503
+            
+    except Exception as e:
+        logger.error(f"Error checking MLflow status: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': str(e),
+            'message': 'Failed to check MLflow server status'
+        }), 500
+
+
 @app.route('/api/batch', methods=['POST'])
 def get_batch_data():
     """
@@ -819,7 +865,166 @@ def handle_get_batch_data(data):
         emit('batch_error', {'error': str(e)})
 
 
+def is_port_in_use(port: int, host: str = '127.0.0.1') -> bool:
+    """Check if a port is already in use"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+            return False
+        except socket.error:
+            return True
+
+
+def is_mlflow_server_running(host: str, port: int) -> bool:
+    """Check if MLflow server is running and responding"""
+    try:
+        response = requests.get(f"http://{host}:{port}/health", timeout=2)
+        return response.status_code == 200
+    except:
+        # If port is in use but not responding to /health, check if it's MLflow
+        try:
+            response = requests.get(f"http://{host}:{port}", timeout=2)
+            # MLflow UI typically returns 200 on root path
+            return response.status_code == 200
+        except:
+            return False
+
+
+def start_mlflow_server():
+    """Start MLflow server if not already running"""
+    if not config.MLFLOW_ENABLED:
+        logger.info("MLflow server startup is disabled in config")
+        return None
+    
+    # Check if MLflow server is already running
+    if is_mlflow_server_running(config.MLFLOW_HOST, config.MLFLOW_PORT):
+        logger.info(f"MLflow server is already running on http://{config.MLFLOW_HOST}:{config.MLFLOW_PORT}")
+        print(f"✓ MLflow server is already running on http://{config.MLFLOW_HOST}:{config.MLFLOW_PORT}")
+        return None
+    
+    # Check if port is in use by something else
+    if is_port_in_use(config.MLFLOW_PORT, config.MLFLOW_HOST):
+        logger.warning(f"Port {config.MLFLOW_PORT} is in use but not responding as MLflow server")
+        print(f"⚠ Port {config.MLFLOW_PORT} is in use but not responding as MLflow server")
+        return None
+    
+    # Create MLflow directories if they don't exist
+    # Extract actual paths from file:// URIs
+    backend_path = config.MLFLOW_BACKEND_STORE_URI.replace('file:///', '').replace('/', os.sep)
+    artifact_path = config.MLFLOW_DEFAULT_ARTIFACT_ROOT.replace('file:///', '').replace('/', os.sep)
+    os.makedirs(backend_path, exist_ok=True)
+    os.makedirs(artifact_path, exist_ok=True)
+    
+    # Start MLflow server
+    try:
+        logger.info(f"Starting MLflow server on http://{config.MLFLOW_HOST}:{config.MLFLOW_PORT}")
+        print(f"Starting MLflow server on http://{config.MLFLOW_HOST}:{config.MLFLOW_PORT}...")
+        
+        mlflow_cmd = [
+            'mlflow', 'server',
+            '--host', config.MLFLOW_HOST,
+            '--port', str(config.MLFLOW_PORT),
+            '--backend-store-uri', config.MLFLOW_BACKEND_STORE_URI,
+            '--default-artifact-root', config.MLFLOW_DEFAULT_ARTIFACT_ROOT
+        ]
+        
+        # Start MLflow as a background process
+        # Set environment to suppress warnings
+        env = os.environ.copy()
+        env['PYTHONWARNINGS'] = 'ignore::UserWarning'
+        
+        process = subprocess.Popen(
+            mlflow_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
+        )
+        
+        # Wait and verify server started successfully with multiple retries
+        max_retries = 10
+        retry_interval = 1  # seconds
+        
+        print("Waiting for MLflow server to start", end="")
+        for attempt in range(max_retries):
+            time.sleep(retry_interval)
+            print(".", end="", flush=True)
+            
+            # Check if process is still running
+            if process.poll() is not None:
+                # Process terminated unexpectedly
+                stdout, stderr = process.communicate()
+                error_msg = stderr.decode('utf-8', errors='ignore') if stderr else "Unknown error"
+                
+                # Filter out common warnings that aren't actual errors
+                error_lines = [line for line in error_msg.split('\n') 
+                              if line.strip() and 
+                              'UserWarning' not in line and 
+                              'pkg_resources is deprecated' not in line and
+                              'site-packages' not in line]
+                
+                actual_error = '\n'.join(error_lines[:5]) if error_lines else "Process terminated without error message"
+                
+                logger.error(f"MLflow server process terminated unexpectedly: {actual_error}")
+                print(f"\n✗ MLflow server failed to start.")
+                if actual_error and actual_error != "Process terminated without error message":
+                    print(f"Error: {actual_error[:300]}")
+                return None
+            
+            # Check if server is responding
+            if is_mlflow_server_running(config.MLFLOW_HOST, config.MLFLOW_PORT):
+                print("")  # New line
+                logger.info(f"✓ MLflow server started successfully on http://{config.MLFLOW_HOST}:{config.MLFLOW_PORT}")
+                print(f"✓ MLflow server started successfully on http://{config.MLFLOW_HOST}:{config.MLFLOW_PORT}")
+                return process
+        
+        # If we get here, server didn't respond within timeout
+        print("")  # New line
+        
+        # Check if process is still running
+        if process.poll() is None:
+            # Process is running but not responding
+            logger.warning(f"MLflow server process is running but not responding after {max_retries * retry_interval} seconds")
+            print(f"⚠ MLflow server started but not responding after {max_retries * retry_interval} seconds")
+            print(f"  The server may still be initializing. Check http://{config.MLFLOW_HOST}:{config.MLFLOW_PORT} in a few moments.")
+            print(f"  You can also check the status with: python test_mlflow_connection.py")
+            return process
+        else:
+            # Process terminated
+            stdout, stderr = process.communicate()
+            error_msg = stderr.decode('utf-8', errors='ignore') if stderr else "Unknown error"
+            
+            # Filter out warnings
+            error_lines = [line for line in error_msg.split('\n') 
+                          if line.strip() and 
+                          'UserWarning' not in line and 
+                          'pkg_resources is deprecated' not in line and
+                          'site-packages' not in line]
+            
+            actual_error = '\n'.join(error_lines[:5]) if error_lines else "Process terminated without error message"
+            
+            logger.error(f"MLflow server failed to start: {actual_error}")
+            print(f"✗ MLflow server failed to start.")
+            if actual_error and actual_error != "Process terminated without error message":
+                print(f"Error: {actual_error[:300]}")
+            print(f"  Try starting MLflow manually: start_mlflow_manual.bat")
+            return None
+            
+    except FileNotFoundError:
+        logger.error("MLflow is not installed. Install it with: pip install mlflow")
+        print("✗ MLflow is not installed. Install it with: pip install mlflow")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to start MLflow server: {str(e)}")
+        print(f"✗ Failed to start MLflow server: {str(e)}")
+        return None
+
+
 if __name__ == '__main__':
+    print("\n" + "="*60)
+    print("Data Provider Server with MLflow Integration")
+    print("="*60 + "\n")
+    
     logger.info(f"Starting Data Provider Server on {config.HOST}:{config.PORT}")
     logger.info(f"Data directory: {config.DATA_DIR}")
     logger.info("WebSocket support enabled")
@@ -827,11 +1032,31 @@ if __name__ == '__main__':
     # Create data directory if it doesn't exist
     os.makedirs(config.DATA_DIR, exist_ok=True)
     
-    # Use socketio.run instead of app.run for WebSocket support
-    socketio.run(
-        app,
-        host=config.HOST,
-        port=config.PORT,
-        debug=True,
-        allow_unsafe_werkzeug=True
-    )
+    # Start MLflow server
+    mlflow_process = start_mlflow_server()
+    
+    print(f"\n{'='*60}")
+    print(f"Data Provider Server: http://{config.HOST}:{config.PORT}")
+    if config.MLFLOW_ENABLED:
+        print(f"MLflow Server: http://{config.MLFLOW_HOST}:{config.MLFLOW_PORT}")
+    print(f"{'='*60}\n")
+    
+    try:
+        # Use socketio.run instead of app.run for WebSocket support
+        socketio.run(
+            app,
+            host=config.HOST,
+            port=config.PORT,
+            debug=True,
+            allow_unsafe_werkzeug=True
+        )
+    except KeyboardInterrupt:
+        print("\n\nShutting down servers...")
+        if mlflow_process:
+            mlflow_process.terminate()
+            print("✓ MLflow server stopped")
+        print("✓ Data Provider server stopped")
+    except Exception as e:
+        logger.error(f"Server error: {str(e)}")
+        if mlflow_process:
+            mlflow_process.terminate()

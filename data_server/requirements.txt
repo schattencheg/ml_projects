@@ -16,3 +16,7 @@ yfinance==0.2.32
 # Utilities
 python-dateutil==2.8.2
 python-socketio==5.10.0
+
+# ML Experiment Tracking
+mlflow>=3.5.0
+importlib-metadata<7.0  # Required for MLflow compatibility

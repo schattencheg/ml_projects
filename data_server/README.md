@@ -5,12 +5,14 @@ A localhost REST API server that provides OHLC (Open, High, Low, Close) data for
 ## Features
 
 - 🚀 **REST API** - Easy-to-use HTTP endpoints
+- 🔌 **WebSocket Support** - Real-time data streaming with lower latency
 - 💰 **Crypto & Stocks** - Support for cryptocurrencies and traditional market instruments
 - ⏰ **Multiple Timeframes** - From 1-minute to monthly data
 - 💾 **Local Caching** - Data stored locally in CSV format
 - 🔄 **Auto-refresh** - Automatic data downloading if not available locally
 - 📊 **Batch Requests** - Get data for multiple instruments at once
 - 📁 **CSV Export** - Download data as CSV files
+- 🧪 **MLflow Integration** - Automatic MLflow server startup for experiment tracking
 
 ## Quick Start
 
@@ -27,6 +29,8 @@ python server.py
 ```
 
 The server will start on `http://localhost:5001`
+
+**Note:** The server will automatically start an MLflow server on `http://localhost:5000` if not already running. This provides integrated experiment tracking for ML workflows.
 
 ### 3. Test the API
 
@@ -355,6 +359,17 @@ CRYPTO_INSTRUMENTS = [
 ## License
 
 MIT License
+
+## Additional Documentation
+
+- **[API Guide](docs/API_GUIDE.md)** - Complete API usage guide with examples
+- **[WebSocket Guide](docs/WEBSOCKET_GUIDE.md)** - Real-time data streaming with WebSocket
+- **[MLflow Integration](docs/MLFLOW_INTEGRATION.md)** - Experiment tracking with MLflow
+- **[MLflow Troubleshooting](docs/MLFLOW_TROUBLESHOOTING.md)** - Troubleshooting MLflow issues
+- **[MLflow Windows Fix](docs/MLFLOW_WINDOWS_FIX.md)** - Windows-specific MLflow configuration
+- **[Quick Start Guide](docs/QUICK_START.md)** - Get started quickly
+- **[Example Usage](example_websocket_usage.py)** - Comprehensive WebSocket examples
+- **[Changelog](docs/CHANGELOG.md)** - Version history and updates
 
 ## Support
 
