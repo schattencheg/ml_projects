@@ -127,3 +127,7 @@ ml_backtest/Output/
 garbage/
 
 *.csv
+
+ml_predict_15/models/
+
+ml_predict_15/plots/

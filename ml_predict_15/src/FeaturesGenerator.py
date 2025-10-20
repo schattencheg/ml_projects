@@ -24,7 +24,7 @@ class FeaturesGenerator:
 
     def add_target(self, df, N=45, M=3.0):
         """
-        Add target column showing if Close is greater than N bars ago by M percent.
+        Add target column showing if Close is greater than N bars ahead by M percent.
         
         Parameters:
         -----------
@@ -38,18 +38,18 @@ class FeaturesGenerator:
         Returns:
         --------
         pd.DataFrame
-            DataFrame with added 'target' column (1 if Close > Close_N_bars_ago * (1 + M/100), else 0)
+            DataFrame with added 'target' column (1 if Close > Close_N_bars_ahead * (1 + M/100), else 0)
         """
-        # Calculate the Close price N bars ago
-        close_n_bars_ago = df['Close'].shift(N)
+        # Calculate the Close price N bars ahead
+        close_n_bars_ahead = df['Close'].shift(-N)
         
-        # Calculate the threshold: Close N bars ago * (1 + M/100)
-        threshold = close_n_bars_ago * (1 + M / 100.0)
+        # Calculate the threshold: Close * (1 + M/100)
+        threshold = df['Close'] * (1 + M / 100.0)
         
-        # Create binary target: 1 if current Close > threshold, else 0
-        df['target'] = (df['Close'] > threshold).astype(int)
+        # Create binary target: 1 if Close_N_bars_ahead > threshold, else 0
+        df['target'] = (close_n_bars_ahead > threshold).astype(int)
         
         # Optional: Also add the actual percentage change for analysis
-        df['pct_change_N'] = ((df['Close'] - close_n_bars_ago) / close_n_bars_ago * 100.0)
+        df['pct_change_N'] = ((close_n_bars_ahead - df['Close']) / df['Close'] * 100.0)
         
         return df
