@@ -13,8 +13,8 @@ import matplotlib.dates as mdates
 from src.FeaturesGenerator import FeaturesGenerator
 
 
-path_1 = "data/btc_2024.csv"
-path_2 = "data/btc_2025.csv"
+path_1 = "data/btc_2022.csv"
+path_2 = "data/btc_2023.csv"
 
 def create_visualizations(results, close_test, y_test, idx_test):
     """
@@ -155,7 +155,9 @@ def create_visualizations(results, close_test, y_test, idx_test):
 df_original_1 = pd.read_csv(path_1)
 #
 df_prepared_1 = df_original_1.copy()
-df_prepared_1.drop(['Timestamp', 'Volume'], axis=1, inplace=True)
+df_prepared_1.drop(['Timestamp'], axis=1, inplace=True)
+if 'Volume' in df_prepared_1.columns:
+    df_prepared_1.drop(['Volume'], axis=1, inplace=True)
 
 fg = FeaturesGenerator()
 # Add target: 3% increase in 45 bars
@@ -290,7 +292,9 @@ print(f"\nBest model saved to: {model_path}")
 # NOW TEST ON NEXT YEAR DATA
 df_original_2 = pd.read_csv(path_2)
 df_prepared_2 = df_original_2.copy()
-df_prepared_2.drop(['Timestamp', 'Volume'], axis=1, inplace=True)
+df_prepared_2.drop(['Timestamp'], axis=1, inplace=True)
+if 'Volume' in df_prepared_2.columns:
+    df_prepared_2.drop(['Volume'], axis=1, inplace=True)
 
 fg = FeaturesGenerator()
 # Add target: 3% increase in 45 bars
