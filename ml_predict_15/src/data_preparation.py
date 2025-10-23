@@ -5,7 +5,7 @@ Functions for preparing OHLCV data for ML model training.
 """
 
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from src.FeaturesGenerator import FeaturesGenerator
 
 
@@ -54,7 +54,7 @@ def prepare_data(df_raw: pd.DataFrame, target_bars: int = 45, target_pct: float 
     return X, y
 
 
-def fit_scaler(X_train: pd.DataFrame):
+def fit_scaler_standard(X_train: pd.DataFrame):
     """
     Fit a StandardScaler on training data.
     
@@ -71,6 +71,27 @@ def fit_scaler(X_train: pd.DataFrame):
         Scaled training features
     """
     scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    
+    return scaler, X_train_scaled
+
+def fit_scaler_minmax(X_train: pd.DataFrame):
+    """
+    Fit a MinMaxScaler on training data.
+    
+    Parameters:
+    -----------
+    X_train : pd.DataFrame
+        Training features
+    
+    Returns:
+    --------
+    scaler : StandardScaler
+        Fitted scaler
+    X_train_scaled : np.ndarray
+        Scaled training features
+    """
+    scaler = MinMaxScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     
     return scaler, X_train_scaled

@@ -266,7 +266,7 @@ def compare_models(
             'profit_factor': results['profit_factor'],
             'max_drawdown': results['max_drawdown'],
             'sharpe_ratio': results['sharpe_ratio'],
-            'avg_bars_held': results['avg_bars_held']
+            #'avg_bars_held': results['avg_bars_held']
         })
     
     comparison_df = pd.DataFrame(results_list)
@@ -382,91 +382,94 @@ def main():
         save_path=f'plots/backtest_{best_model_name}.png'
     )
     
-    # Example 2: Compare different trailing stop percentages
-    print("\n" + "="*80)
-    print("EXAMPLE 2: COMPARE TRAILING STOP PERCENTAGES")
-    print("="*80)
+    if False:
+        # Example 2: Compare different trailing stop percentages
+        print("\n" + "="*80)
+        print("EXAMPLE 2: COMPARE TRAILING STOP PERCENTAGES")
+        print("="*80)
+        
+        trailing_stop_comparison = compare_trailing_stops(
+            model_name=best_model_name,
+            model=best_model,
+            scaler=scaler,
+            df_test=df_test_with_features,
+            X_columns=X_columns,
+            trailing_stops=[1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0]
+        )
     
-    trailing_stop_comparison = compare_trailing_stops(
-        model_name=best_model_name,
-        model=best_model,
-        scaler=scaler,
-        df_test=df_test_with_features,
-        X_columns=X_columns,
-        trailing_stops=[1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0]
-    )
+    if False:
+        # Example 3: Compare all models
+        print("\n" + "="*80)
+        print("EXAMPLE 3: COMPARE ALL MODELS")
+        print("="*80)
     
-    # Example 3: Compare all models
-    print("\n" + "="*80)
-    print("EXAMPLE 3: COMPARE ALL MODELS")
-    print("="*80)
+        model_comparison = compare_models(
+            models=models,
+            scaler=scaler,
+            df_test=df_test_with_features,
+            X_columns=X_columns,
+            trailing_stop_pct=2.0
+        )
     
-    model_comparison = compare_models(
-        models=models,
-        scaler=scaler,
-        df_test=df_test_with_features,
-        X_columns=X_columns,
-        trailing_stop_pct=2.0
-    )
+    if False:
+        # Example 4: Conservative vs Aggressive strategy
+        print("\n" + "="*80)
+        print("EXAMPLE 4: CONSERVATIVE VS AGGRESSIVE STRATEGY")
+        print("="*80)
     
-    # Example 4: Conservative vs Aggressive strategy
-    print("\n" + "="*80)
-    print("EXAMPLE 4: CONSERVATIVE VS AGGRESSIVE STRATEGY")
-    print("="*80)
+        print("\nConservative Strategy (50% position size, 1.5% trailing stop, 0.7 prob threshold):")
+        conservative_backtester, conservative_results = backtest_single_model(
+            model_name=f"{best_model_name}_conservative",
+            model=best_model,
+            scaler=scaler,
+            df_test=df_test_with_features,
+            X_columns=X_columns,
+            initial_capital=10000.0,
+            trailing_stop_pct=1.5,
+            take_profit_pct=4.0,
+            probability_threshold=0.7,  # Higher threshold
+            position_size=0.5  # Use only 50% of capital
+        )
     
-    print("\nConservative Strategy (50% position size, 1.5% trailing stop, 0.7 prob threshold):")
-    conservative_backtester, conservative_results = backtest_single_model(
-        model_name=f"{best_model_name}_conservative",
-        model=best_model,
-        scaler=scaler,
-        df_test=df_test_with_features,
-        X_columns=X_columns,
-        initial_capital=10000.0,
-        trailing_stop_pct=1.5,
-        take_profit_pct=4.0,
-        probability_threshold=0.7,  # Higher threshold
-        position_size=0.5  # Use only 50% of capital
-    )
+        print("\nAggressive Strategy (100% position size, 3% trailing stop, 0.55 prob threshold):")
+        aggressive_backtester, aggressive_results = backtest_single_model(
+            model_name=f"{best_model_name}_aggressive",
+            model=best_model,
+            scaler=scaler,
+            df_test=df_test_with_features,
+            X_columns=X_columns,
+            initial_capital=10000.0,
+            trailing_stop_pct=3.0,
+            take_profit_pct=8.0,
+            probability_threshold=0.55,  # Lower threshold
+            position_size=1.0  # Use 100% of capital
+        )
     
-    print("\nAggressive Strategy (100% position size, 3% trailing stop, 0.55 prob threshold):")
-    aggressive_backtester, aggressive_results = backtest_single_model(
-        model_name=f"{best_model_name}_aggressive",
-        model=best_model,
-        scaler=scaler,
-        df_test=df_test_with_features,
-        X_columns=X_columns,
-        initial_capital=10000.0,
-        trailing_stop_pct=3.0,
-        take_profit_pct=8.0,
-        probability_threshold=0.55,  # Lower threshold
-        position_size=1.0  # Use 100% of capital
-    )
-    
-    # Compare strategies
-    print("\n" + "="*80)
-    print("STRATEGY COMPARISON")
-    print("="*80)
-    
-    strategy_comparison = pd.DataFrame([
-        {
-            'strategy': 'Conservative',
-            'total_return_pct': conservative_results['total_return_pct'],
-            'total_trades': conservative_results['total_trades'],
-            'win_rate': conservative_results['win_rate'],
-            'max_drawdown': conservative_results['max_drawdown'],
-            'sharpe_ratio': conservative_results['sharpe_ratio']
-        },
-        {
-            'strategy': 'Aggressive',
-            'total_return_pct': aggressive_results['total_return_pct'],
-            'total_trades': aggressive_results['total_trades'],
-            'win_rate': aggressive_results['win_rate'],
-            'max_drawdown': aggressive_results['max_drawdown'],
-            'sharpe_ratio': aggressive_results['sharpe_ratio']
-        }
-    ])
-    
-    print(strategy_comparison.to_string(index=False))
+        # Compare strategies
+        print("\n" + "="*80)
+        print("STRATEGY COMPARISON")
+        print("="*80)
+        
+        strategy_comparison = pd.DataFrame([
+            {
+                'strategy': 'Conservative',
+                'total_return_pct': conservative_results['total_return_pct'],
+                'total_trades': conservative_results['total_trades'],
+                'win_rate': conservative_results['win_rate'],
+                'max_drawdown': conservative_results['max_drawdown'],
+                'sharpe_ratio': conservative_results['sharpe_ratio']
+            },
+            {
+                'strategy': 'Aggressive',
+                'total_return_pct': aggressive_results['total_return_pct'],
+                'total_trades': aggressive_results['total_trades'],
+                'win_rate': aggressive_results['win_rate'],
+                'max_drawdown': aggressive_results['max_drawdown'],
+                'sharpe_ratio': aggressive_results['sharpe_ratio']
+            }
+        ])
+        
+        print(strategy_comparison.to_string(index=False))
     
     print("\n" + "="*80)
     print("BACKTESTING COMPLETE!")

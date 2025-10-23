@@ -11,6 +11,7 @@ from typing import Dict, List, Tuple, Optional, Union
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import datetime
+from tqdm import tqdm
 
 
 class MLBacktester:
@@ -124,6 +125,8 @@ class MLBacktester:
         if self.position > 0:
             return  # Already in position
         
+        print(f"\nBUY SIGNAL AT {price:.2f} ON {timestamp}")
+
         # Apply slippage
         entry_price_with_slippage = price * (1 + self.slippage)
         
@@ -167,6 +170,8 @@ class MLBacktester:
         if self.position == 0:
             return  # No position to exit
         
+        print(f"\nSELL SIGNAL AT {price:.2f} ON {timestamp} ({self.bars_in_position} bars in position)")
+
         # Apply slippage
         exit_price_with_slippage = price * (1 - self.slippage)
         
@@ -329,7 +334,7 @@ class MLBacktester:
             probabilities = predictions.astype(float)
         
         # Run backtest
-        for i in range(len(df)):
+        for i in tqdm(range(len(df))):
             current_price = df[close_column].iloc[i]
             timestamp = df[timestamp_column].iloc[i]
             prediction = predictions[i]
@@ -354,10 +359,6 @@ class MLBacktester:
                         self.enter_long(current_price, timestamp, signal_strength=probability)
                 else:
                     self.enter_long(current_price, timestamp, signal_strength=probability)
-            
-            # Check exit signal (model predicts no increase)
-            elif self.position > 0 and prediction == 0:
-                self.exit_long(current_price, timestamp, reason='SIGNAL')
             
             # Record equity
             if self.position > 0:
@@ -489,29 +490,43 @@ class MLBacktester:
         print("="*80)
         
         print(f"\nCapital:")
-        print(f"  Initial Capital:        ${self.initial_capital:,.2f}")
-        print(f"  Final Capital:          ${results['final_capital']:,.2f}")
-        print(f"  Total Return:           ${results['total_return']:,.2f}")
-        print(f"  Total Return %:         {results['total_return_pct']:.2f}%")
-        print(f"  Buy & Hold Return %:    {results['buy_and_hold_return_pct']:.2f}%")
+        if 'initial_capital' in results:
+            print(f"  Initial Capital:        ${self.initial_capital:,.2f}")
+        if 'final_capital' in results:
+            print(f"  Final Capital:          ${results['final_capital']:,.2f}")
+        if 'total_return' in results:
+            print(f"  Total Return:           ${results['total_return']:,.2f}")
+        if 'total_return_pct' in results:
+            print(f"  Total Return %:         {results['total_return_pct']:.2f}%")
+        if 'buy_and_hold_return_pct' in results:
+            print(f"  Buy & Hold Return %:    {results['buy_and_hold_return_pct']:.2f}%")
         
         print(f"\nTrades:")
         print(f"  Total Trades:           {results['total_trades']}")
-        print(f"  Winning Trades:         {results['winning_trades']}")
-        print(f"  Losing Trades:          {results['losing_trades']}")
-        print(f"  Win Rate:               {results['win_rate']:.2f}%")
+        if 'winning_trades' in results:
+            print(f"  Winning Trades:         {results['winning_trades']}")
+        if 'losing_trades' in results:
+            print(f"  Losing Trades:          {results['losing_trades']}")
+        if 'win_rate' in results:
+            print(f"  Win Rate:               {results['win_rate']:.2f}%")
         
         print(f"\nProfit/Loss:")
-        print(f"  Average Win:            ${results['avg_win']:,.2f}")
-        print(f"  Average Loss:           ${results['avg_loss']:,.2f}")
-        print(f"  Profit Factor:          {results['profit_factor']:.2f}")
+        if 'avg_win' in results:
+            print(f"  Average Win:            ${results['avg_win']:,.2f}")
+        if 'avg_loss' in results:
+            print(f"  Average Loss:           ${results['avg_loss']:,.2f}")
+        if 'profit_factor' in results:
+            print(f"  Profit Factor:          {results['profit_factor']:.2f}")
         
         print(f"\nRisk Metrics:")
-        print(f"  Max Drawdown:           {results['max_drawdown']:.2f}%")
-        print(f"  Sharpe Ratio:           {results['sharpe_ratio']:.2f}")
+        if 'max_drawdown' in results:
+            print(f"  Max Drawdown:           {results['max_drawdown']:.2f}%")
+        if 'sharpe_ratio' in results:
+            print(f"  Sharpe Ratio:           {results['sharpe_ratio']:.2f}")
         
         print(f"\nHolding Period:")
-        print(f"  Avg Bars Held:          {results['avg_bars_held']:.1f}")
+        if 'avg_bars_held' in results:
+            print(f"  Avg Bars Held:          {results['avg_bars_held']:.1f}")
         
         print(f"\nStrategy Parameters:")
         print(f"  Position Size:          {self.position_size * 100:.1f}%")

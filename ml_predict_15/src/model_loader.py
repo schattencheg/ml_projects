@@ -125,8 +125,10 @@ def list_available_models(models_dir: str = 'models') -> List[str]:
     
     model_files = [f for f in os.listdir(models_dir) if f.endswith('.joblib')]
     model_files = [f for f in model_files if 'scaler' not in f.lower()]
-    
-    model_names = [f.replace('.joblib', '').replace('_best', '') for f in model_files]
+    model_best = [f for f in model_files if 'best' in f.lower()]
+    model_not_best = [f for f in model_files if 'best' not in f.lower()]
+    model_names = model_best + model_not_best
+    model_names = [f.replace('.joblib', '').replace('_best', '') for f in model_names]
     
     return model_names
 

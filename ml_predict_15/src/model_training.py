@@ -14,7 +14,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, classification_report, roc_auc_score
 from sklearn.model_selection import train_test_split
-from src.data_preparation import prepare_data, fit_scaler
+from src.data_preparation import fit_scaler_minmax, prepare_data
 from src.neural_models import (
     create_lstm_model, create_cnn_model, create_hybrid_lstm_cnn_model,
     KerasClassifierWrapper, TENSORFLOW_AVAILABLE
@@ -50,9 +50,7 @@ def get_model_configs():
         "logistic_regression": (
             LogisticRegression(max_iter=1000, random_state=42),
             {"max_iter": 1000}
-        )
-    }
-    '''
+        ),
         "ridge_classifier": (
             RidgeClassifier(random_state=42),
             {}
@@ -69,6 +67,8 @@ def get_model_configs():
             DecisionTreeClassifier(max_depth=10, random_state=42),
             {"max_depth": 10}
         ),
+    }
+    '''
         "random_forest": (
             RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42),
             {"n_estimators": 100, "max_depth": 10}
@@ -294,7 +294,7 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
         models = add_neural_network_models(models, input_shape, sequence_length)
 
     # Fit scaler on training data
-    scaler, X_train_scaled = fit_scaler(X_train)
+    scaler, X_train_scaled = fit_scaler_minmax(X_train)
     X_val_scaled = scaler.transform(X_val)
 
     # Train and evaluate models
