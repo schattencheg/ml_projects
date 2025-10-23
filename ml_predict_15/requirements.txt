@@ -3,3 +3,14 @@ numpy
 scikit-learn
 matplotlib
 kagglehub
+joblib
+
+# Neural Networks
+tensorflow>=2.10.0
+
+# Advanced ML Models
+xgboost>=1.6.0
+lightgbm>=3.3.0
+
+# Optional: For GPU support (uncomment if needed)
+# tensorflow-gpu>=2.10.0
