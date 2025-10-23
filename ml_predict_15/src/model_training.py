@@ -6,6 +6,8 @@ Functions for training and evaluating ML models.
 
 import pandas as pd
 import numpy as np
+import os
+import multiprocessing
 from sklearn.linear_model import LogisticRegression, RidgeClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
@@ -44,76 +46,196 @@ try:
 except ImportError:
     LIGHTGBM_AVAILABLE = False
 
-
-def get_model_configs():
+# Detect hardware capabilities
+def detect_hardware():
     """
-    Get configurations for all available models.
+    Detect available hardware for acceleration.
+    
+    Returns:
+    --------
+    hardware_info : dict
+        Dictionary with hardware capabilities
+    """
+    hardware_info = {
+        'cpu_cores': multiprocessing.cpu_count(),
+        'gpu_available': False,
+        'gpu_device': None,
+        'cuda_available': False
+    }
+    
+    # Check for CUDA/GPU support
+    try:
+        import tensorflow as tf
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            hardware_info['gpu_available'] = True
+            hardware_info['cuda_available'] = True
+            hardware_info['gpu_device'] = gpus[0].name
+            print(f"✓ GPU detected: {gpus[0].name}")
+    except:
+        pass
+    
+    # Check XGBoost GPU support
+    if XGBOOST_AVAILABLE:
+        try:
+            import xgboost as xgb
+            # Try to create a GPU-enabled booster
+            test_params = {'tree_method': 'gpu_hist', 'gpu_id': 0}
+            hardware_info['xgboost_gpu'] = True
+        except:
+            hardware_info['xgboost_gpu'] = False
+    
+    # Check LightGBM GPU support
+    if LIGHTGBM_AVAILABLE:
+        try:
+            import lightgbm as lgb
+            # LightGBM GPU support check
+            hardware_info['lightgbm_gpu'] = False  # Requires special compilation
+        except:
+            hardware_info['lightgbm_gpu'] = False
+    
+    print(f"✓ CPU cores available: {hardware_info['cpu_cores']}")
+    
+    return hardware_info
+
+# Detect hardware at module load
+HARDWARE_INFO = detect_hardware()
+
+
+def get_model_configs(use_gpu=False, n_jobs=-1):
+    """
+    Get configurations for all available models with hardware acceleration.
+    
+    Parameters:
+    -----------
+    use_gpu : bool
+        Whether to use GPU acceleration (if available)
+    n_jobs : int
+        Number of CPU cores to use (-1 = all cores, 1 = single core)
     
     Returns:
     --------
     models : dict
         Dictionary of model_name -> (model_instance, params_dict)
     """
+    # Determine optimal number of jobs
+    if n_jobs == -1:
+        n_jobs = max(1, HARDWARE_INFO['cpu_cores'] - 1)  # Leave one core free
+    elif n_jobs == 0:
+        n_jobs = 1
+    
+    print(f"\n{'='*80}")
+    print(f"HARDWARE ACCELERATION SETTINGS")
+    print(f"{'='*80}")
+    print(f"CPU cores to use: {n_jobs} of {HARDWARE_INFO['cpu_cores']}")
+    print(f"GPU acceleration: {'Enabled' if use_gpu and HARDWARE_INFO['gpu_available'] else 'Disabled'}")
+    print(f"{'='*80}\n")
     models = {
-        # Traditional ML models with class_weight='balanced' for handling imbalanced data
+        # Traditional ML models with class_weight='balanced' and multi-core support
         "logistic_regression": (
-            LogisticRegression(max_iter=1000, random_state=42, class_weight='balanced'),
-            {"max_iter": 1000, "class_weight": "balanced"}
+            LogisticRegression(
+                max_iter=1000, 
+                random_state=42, 
+                class_weight='balanced',
+                n_jobs=n_jobs  # Multi-core support
+            ),
+            {"max_iter": 1000, "class_weight": "balanced", "n_jobs": n_jobs}
         ),
         "ridge_classifier": (
             RidgeClassifier(random_state=42, class_weight='balanced'),
-            {"class_weight": "balanced"}
+            {"class_weight": "balanced"}  # Ridge doesn't support n_jobs
         ),
         "naive_bayes": (
             GaussianNB(),
-            {}  # Naive Bayes doesn't support class_weight
+            {}  # Naive Bayes doesn't support class_weight or n_jobs
         ),
-        "knn": (
-            KNeighborsClassifier(n_neighbors=5),
-            {"n_neighbors": 5}  # KNN doesn't support class_weight
+        "knn_k_neighbours": (
+            KNeighborsClassifier(
+                n_neighbors=5,
+                n_jobs=n_jobs  # Multi-core support
+            ),
+            {"n_neighbors": 5, "n_jobs": n_jobs}
         ),
         "decision_tree": (
-            DecisionTreeClassifier(max_depth=10, random_state=42, class_weight='balanced'),
-            {"max_depth": 10, "class_weight": "balanced"}
+            DecisionTreeClassifier(
+                max_depth=10, 
+                random_state=42, 
+                class_weight='balanced'
+            ),
+            {"max_depth": 10, "class_weight": "balanced"}  # Decision tree doesn't support n_jobs
         ),
         "random_forest": (
-            RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, class_weight='balanced'),
-            {"n_estimators": 100, "max_depth": 10, "class_weight": "balanced"}
+            RandomForestClassifier(
+                n_estimators=100, 
+                max_depth=10, 
+                random_state=42, 
+                class_weight='balanced',
+                n_jobs=n_jobs  # Multi-core support
+            ),
+            {"n_estimators": 100, "max_depth": 10, "class_weight": "balanced", "n_jobs": n_jobs}
         ),
         "gradient_boosting": (
-            GradientBoostingClassifier(n_estimators=100, max_depth=5, random_state=42),
-            {"n_estimators": 100, "max_depth": 5}  # GB doesn't support class_weight directly
+            GradientBoostingClassifier(
+                n_estimators=100, 
+                max_depth=5, 
+                random_state=42
+            ),
+            {"n_estimators": 100, "max_depth": 5}  # GB doesn't support class_weight or n_jobs
         ),
-        "svm": (
-            SVC(kernel='rbf', probability=True, random_state=42, class_weight='balanced'),
-            {"kernel": "rbf", "class_weight": "balanced"}
+        "svm_support_vector_classification": (
+            SVC(
+                kernel='rbf', 
+                probability=True, 
+                random_state=42, 
+                class_weight='balanced'
+            ),
+            {"kernel": "rbf", "class_weight": "balanced"}  # SVM doesn't benefit from n_jobs for small datasets
         ),
     }
     
-    # Add XGBoost if available
+    # Add XGBoost if available (with GPU support)
     if XGBOOST_AVAILABLE:
+        xgb_params = {
+            'n_estimators': 100,
+            'max_depth': 5,
+            'learning_rate': 0.1,
+            'random_state': 42,
+            'eval_metric': 'logloss',
+            'n_jobs': n_jobs
+        }
+        
+        # Enable GPU if available and requested
+        if use_gpu and HARDWARE_INFO.get('xgboost_gpu', False):
+            xgb_params['tree_method'] = 'gpu_hist'
+            xgb_params['gpu_id'] = 0
+            print("  ✓ XGBoost: GPU acceleration enabled")
+        else:
+            xgb_params['tree_method'] = 'hist'  # Fast CPU histogram method
+        
         models["xgboost"] = (
-            xgb.XGBClassifier(
-                n_estimators=100,
-                max_depth=5,
-                learning_rate=0.1,
-                random_state=42,
-                eval_metric='logloss'
-            ),
-            {"n_estimators": 100, "max_depth": 5, "learning_rate": 0.1}
+            xgb.XGBClassifier(**xgb_params),
+            xgb_params
         )
     
-    # Add LightGBM if available
+    # Add LightGBM if available (with multi-core support)
     if LIGHTGBM_AVAILABLE:
+        lgb_params = {
+            'n_estimators': 100,
+            'max_depth': 5,
+            'learning_rate': 0.1,
+            'random_state': 42,
+            'verbose': -1,
+            'n_jobs': n_jobs
+        }
+        
+        # LightGBM GPU support (requires special compilation)
+        if use_gpu and HARDWARE_INFO.get('lightgbm_gpu', False):
+            lgb_params['device'] = 'gpu'
+            print("  ✓ LightGBM: GPU acceleration enabled")
+        
         models["lightgbm"] = (
-            lgb.LGBMClassifier(
-                n_estimators=100,
-                max_depth=5,
-                learning_rate=0.1,
-                random_state=42,
-                verbose=-1
-            ),
-            {"n_estimators": 100, "max_depth": 5, "learning_rate": 0.1}
+            lgb.LGBMClassifier(**lgb_params),
+            lgb_params
         )
     return models
 
@@ -332,9 +454,9 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
     }
 
 
-def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0, use_smote: bool = True):
+def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0, use_smote: bool = True, use_gpu: bool = False, n_jobs: int = -1):
     """
-    Train models on the provided training dataframe.
+    Train models on the provided training dataframe with hardware acceleration.
     
     Parameters:
     -----------
@@ -346,6 +468,10 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
         Percentage increase threshold for target
     use_smote : bool
         Whether to use SMOTE for oversampling minority class
+    use_gpu : bool
+        Whether to use GPU acceleration (if available)
+    n_jobs : int
+        Number of CPU cores to use (-1 = all available cores)
     
     Returns:
     --------
@@ -391,8 +517,8 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
         print("SMOTE requested but not available. Install with: pip install imbalanced-learn")
         print("Continuing without SMOTE...\n")
 
-    # Get model configurations
-    models = get_model_configs()
+    # Get model configurations with hardware acceleration
+    models = get_model_configs(use_gpu=use_gpu, n_jobs=n_jobs)
     
     # Add neural network models if TensorFlow is available
     if False and TENSORFLOW_AVAILABLE:
