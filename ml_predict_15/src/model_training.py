@@ -14,7 +14,16 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, classification_report, roc_auc_score
 from sklearn.model_selection import train_test_split
+from sklearn.utils.class_weight import compute_class_weight
 from src.data_preparation import fit_scaler_minmax, prepare_data
+
+# Try to import SMOTE for handling imbalanced data
+try:
+    from imblearn.over_sampling import SMOTE
+    SMOTE_AVAILABLE = True
+except ImportError:
+    SMOTE_AVAILABLE = False
+    print("Warning: imbalanced-learn not installed. Install with: pip install imbalanced-learn")
 from src.neural_models import (
     create_lstm_model, create_cnn_model, create_hybrid_lstm_cnn_model,
     KerasClassifierWrapper, TENSORFLOW_AVAILABLE
@@ -46,40 +55,38 @@ def get_model_configs():
         Dictionary of model_name -> (model_instance, params_dict)
     """
     models = {
-        # Traditional ML models
+        # Traditional ML models with class_weight='balanced' for handling imbalanced data
         "logistic_regression": (
-            LogisticRegression(max_iter=1000, random_state=42),
-            {"max_iter": 1000}
+            LogisticRegression(max_iter=1000, random_state=42, class_weight='balanced'),
+            {"max_iter": 1000, "class_weight": "balanced"}
         ),
         "ridge_classifier": (
-            RidgeClassifier(random_state=42),
-            {}
+            RidgeClassifier(random_state=42, class_weight='balanced'),
+            {"class_weight": "balanced"}
         ),
         "naive_bayes": (
             GaussianNB(),
-            {}
+            {}  # Naive Bayes doesn't support class_weight
         ),
         "knn": (
             KNeighborsClassifier(n_neighbors=5),
-            {"n_neighbors": 5}
+            {"n_neighbors": 5}  # KNN doesn't support class_weight
         ),
         "decision_tree": (
-            DecisionTreeClassifier(max_depth=10, random_state=42),
-            {"max_depth": 10}
+            DecisionTreeClassifier(max_depth=10, random_state=42, class_weight='balanced'),
+            {"max_depth": 10, "class_weight": "balanced"}
         ),
-    }
-    '''
         "random_forest": (
-            RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42),
-            {"n_estimators": 100, "max_depth": 10}
+            RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, class_weight='balanced'),
+            {"n_estimators": 100, "max_depth": 10, "class_weight": "balanced"}
         ),
         "gradient_boosting": (
             GradientBoostingClassifier(n_estimators=100, max_depth=5, random_state=42),
-            {"n_estimators": 100, "max_depth": 5}
+            {"n_estimators": 100, "max_depth": 5}  # GB doesn't support class_weight directly
         ),
         "svm": (
-            SVC(kernel='rbf', probability=True, random_state=42),
-            {"kernel": "rbf"}
+            SVC(kernel='rbf', probability=True, random_state=42, class_weight='balanced'),
+            {"kernel": "rbf", "class_weight": "balanced"}
         ),
     }
     
@@ -108,8 +115,6 @@ def get_model_configs():
             ),
             {"n_estimators": 100, "max_depth": 5, "learning_rate": 0.1}
         )
-    '''
-    
     return models
 
 
@@ -170,7 +175,57 @@ def add_neural_network_models(models, input_shape, sequence_length=60):
     return models
 
 
-def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_scaled, y_val):
+def find_optimal_threshold(model, X_val_scaled, y_val, metric='f1'):
+    """
+    Find optimal probability threshold to maximize a given metric.
+    
+    Parameters:
+    -----------
+    model : sklearn model
+        Trained model with predict_proba
+    X_val_scaled : np.ndarray
+        Validation features
+    y_val : pd.Series
+        Validation labels
+    metric : str
+        Metric to optimize ('f1', 'recall', 'precision')
+    
+    Returns:
+    --------
+    best_threshold : float
+        Optimal threshold
+    best_score : float
+        Best score achieved
+    """
+    if not hasattr(model, 'predict_proba'):
+        return 0.5, None
+    
+    y_proba = model.predict_proba(X_val_scaled)[:, 1]
+    thresholds = np.arange(0.1, 0.9, 0.05)
+    
+    best_threshold = 0.5
+    best_score = 0
+    
+    for threshold in thresholds:
+        y_pred_thresh = (y_proba >= threshold).astype(int)
+        
+        if metric == 'f1':
+            score = f1_score(y_val, y_pred_thresh, zero_division=0)
+        elif metric == 'recall':
+            score = recall_score(y_val, y_pred_thresh, zero_division=0)
+        elif metric == 'precision':
+            score = precision_score(y_val, y_pred_thresh, zero_division=0)
+        else:
+            score = f1_score(y_val, y_pred_thresh, zero_division=0)
+        
+        if score > best_score:
+            best_score = score
+            best_threshold = threshold
+    
+    return best_threshold, best_score
+
+
+def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_scaled, y_val, optimize_threshold=True):
     """
     Train and evaluate a single model.
     
@@ -188,6 +243,8 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
         Scaled validation features
     y_val : pd.Series
         Validation labels
+    optimize_threshold : bool
+        Whether to optimize decision threshold for better recall
     
     Returns:
     --------
@@ -204,11 +261,39 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
     # Make predictions on validation set
     y_pred = model.predict(X_val_scaled)
     
-    # Calculate metrics
+    # Calculate metrics with default threshold (0.5)
     accuracy = accuracy_score(y_val, y_pred)
     f1 = f1_score(y_val, y_pred)
     precision = precision_score(y_val, y_pred)
     recall = recall_score(y_val, y_pred)
+    
+    # Try to optimize threshold for better F1 score
+    optimal_threshold = 0.5
+    if optimize_threshold and hasattr(model, 'predict_proba'):
+        optimal_threshold, optimal_f1 = find_optimal_threshold(model, X_val_scaled, y_val, metric='f1')
+        
+        if optimal_f1 > f1:
+            # Use optimized threshold
+            y_proba = model.predict_proba(X_val_scaled)[:, 1]
+            y_pred_optimized = (y_proba >= optimal_threshold).astype(int)
+            
+            # Recalculate metrics with optimized threshold
+            accuracy_opt = accuracy_score(y_val, y_pred_optimized)
+            f1_opt = f1_score(y_val, y_pred_optimized)
+            precision_opt = precision_score(y_val, y_pred_optimized)
+            recall_opt = recall_score(y_val, y_pred_optimized)
+            
+            print(f"\n  Threshold Optimization:")
+            print(f"    Default threshold (0.5): F1={f1:.4f}, Recall={recall:.4f}")
+            print(f"    Optimal threshold ({optimal_threshold:.2f}): F1={f1_opt:.4f}, Recall={recall_opt:.4f}")
+            print(f"    Improvement: F1={f1_opt-f1:+.4f}, Recall={recall_opt-recall:+.4f}")
+            
+            # Update predictions and metrics
+            y_pred = y_pred_optimized
+            accuracy = accuracy_opt
+            f1 = f1_opt
+            precision = precision_opt
+            recall = recall_opt
     
     # Calculate ROC AUC
     try:
@@ -247,7 +332,7 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
     }
 
 
-def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0):
+def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0, use_smote: bool = True):
     """
     Train models on the provided training dataframe.
     
@@ -259,6 +344,8 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
         Number of bars to look ahead for target
     target_pct : float
         Percentage increase threshold for target
+    use_smote : bool
+        Whether to use SMOTE for oversampling minority class
     
     Returns:
     --------
@@ -277,12 +364,32 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
     print(f"Dataset shape: {X.shape}")
     print(f"Target distribution:\n{y.value_counts()}")
     print(f"Target balance: {y.value_counts(normalize=True)}")
+    
+    # Calculate class imbalance ratio
+    class_counts = y.value_counts()
+    imbalance_ratio = class_counts.max() / class_counts.min()
+    print(f"Class imbalance ratio: {imbalance_ratio:.2f}:1")
     print()
 
     # Split data into train/validation sets
     X_train, X_val, y_train, y_val = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
+    
+    # Apply SMOTE if available and requested
+    if use_smote and SMOTE_AVAILABLE and imbalance_ratio > 1.5:
+        print("Applying SMOTE to balance training data...")
+        smote = SMOTE(random_state=42, k_neighbors=5)
+        X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
+        print(f"Original training size: {X_train.shape[0]}")
+        print(f"Resampled training size: {X_train_resampled.shape[0]}")
+        print(f"New class distribution: {pd.Series(y_train_resampled).value_counts()}")
+        print()
+        X_train = X_train_resampled
+        y_train = y_train_resampled
+    elif use_smote and not SMOTE_AVAILABLE:
+        print("SMOTE requested but not available. Install with: pip install imbalanced-learn")
+        print("Continuing without SMOTE...\n")
 
     # Get model configurations
     models = get_model_configs()
@@ -326,6 +433,10 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
     print(f"\n{'='*80}")
     print(f"BEST MODEL: {best_model_name.upper()} with accuracy: {best_score:.4f}")
     print(f"{'='*80}")
+    
+    # Print training results summary and create visualizations
+    print_training_results_summary(results)
+    plot_training_comparison(results)
 
     # Save all models and scaler
     save_all_models(models, scaler, models_dir='models')
@@ -339,6 +450,166 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
     print(f"\nBest model also saved separately to: {model_path}")
 
     return models, scaler, results, best_model_name
+
+
+def print_training_results_summary(results: dict):
+    """
+    Print summary of training/validation results for all models.
+    
+    Parameters:
+    -----------
+    results : dict
+        Dictionary with validation metrics for each model
+    """
+    print(f"\n{'='*80}")
+    print(f"TRAINING RESULTS SUMMARY (Validation Set)")
+    print(f"{'='*80}")
+    
+    # Create summary dataframe
+    summary_data = []
+    for model_name, metrics in results.items():
+        summary_data.append({
+            'Model': model_name,
+            'Accuracy': metrics['accuracy'],
+            'F1 Score': metrics['f1'],
+            'Precision': metrics['precision'],
+            'Recall': metrics['recall'],
+            'ROC AUC': metrics['roc_auc']
+        })
+    
+    summary_df = pd.DataFrame(summary_data)
+    summary_df = summary_df.sort_values('F1 Score', ascending=False)
+    
+    print("\n" + summary_df.to_string(index=False))
+    
+    # Find best model for each metric
+    print(f"\n{'='*80}")
+    print(f"BEST MODELS BY METRIC (Validation Set)")
+    print(f"{'='*80}")
+    
+    best_accuracy = summary_df.loc[summary_df['Accuracy'].idxmax()]
+    best_f1 = summary_df.loc[summary_df['F1 Score'].idxmax()]
+    best_precision = summary_df.loc[summary_df['Precision'].idxmax()]
+    best_recall = summary_df.loc[summary_df['Recall'].idxmax()]
+    best_roc_auc = summary_df.loc[summary_df['ROC AUC'].idxmax()]
+    
+    print(f"  Best Accuracy:  {best_accuracy['Model']} ({best_accuracy['Accuracy']:.4f})")
+    print(f"  Best F1 Score:  {best_f1['Model']} ({best_f1['F1 Score']:.4f})")
+    print(f"  Best Precision: {best_precision['Model']} ({best_precision['Precision']:.4f})")
+    print(f"  Best Recall:    {best_recall['Model']} ({best_recall['Recall']:.4f})")
+    print(f"  Best ROC AUC:   {best_roc_auc['Model']} ({best_roc_auc['ROC AUC']:.4f})")
+
+
+def plot_training_comparison(results: dict, save_path: str = 'plots/model_comparison_training.png'):
+    """
+    Create visualization comparing model performance on validation set.
+    
+    Parameters:
+    -----------
+    results : dict
+        Dictionary with validation metrics for each model
+    save_path : str
+        Path to save the plot
+    """
+    import os
+    import matplotlib.pyplot as plt
+    
+    # Create plots directory if it doesn't exist
+    os.makedirs('plots', exist_ok=True)
+    
+    # Prepare data
+    model_names = []
+    accuracy_scores = []
+    f1_scores = []
+    precision_scores = []
+    recall_scores = []
+    roc_auc_scores = []
+    
+    for model_name, metrics in results.items():
+        model_names.append(model_name.replace('_', ' ').title())
+        accuracy_scores.append(metrics['accuracy'])
+        f1_scores.append(metrics['f1'])
+        precision_scores.append(metrics['precision'])
+        recall_scores.append(metrics['recall'])
+        roc_auc_scores.append(metrics['roc_auc'])
+    
+    # Create figure with subplots
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    fig.suptitle('Model Performance Comparison on Validation Set', fontsize=16, fontweight='bold')
+    
+    # Plot 1: Accuracy
+    axes[0, 0].bar(model_names, accuracy_scores, color='#3498db', alpha=0.8)
+    axes[0, 0].set_title('Accuracy', fontweight='bold')
+    axes[0, 0].set_ylabel('Score')
+    axes[0, 0].set_ylim([0, 1])
+    axes[0, 0].tick_params(axis='x', rotation=45)
+    axes[0, 0].grid(True, alpha=0.3, axis='y')
+    for i, v in enumerate(accuracy_scores):
+        axes[0, 0].text(i, v + 0.02, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+    
+    # Plot 2: F1 Score
+    axes[0, 1].bar(model_names, f1_scores, color='#2ecc71', alpha=0.8)
+    axes[0, 1].set_title('F1 Score', fontweight='bold')
+    axes[0, 1].set_ylabel('Score')
+    axes[0, 1].set_ylim([0, 1])
+    axes[0, 1].tick_params(axis='x', rotation=45)
+    axes[0, 1].grid(True, alpha=0.3, axis='y')
+    for i, v in enumerate(f1_scores):
+        axes[0, 1].text(i, v + 0.02, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+    
+    # Plot 3: Precision
+    axes[0, 2].bar(model_names, precision_scores, color='#e74c3c', alpha=0.8)
+    axes[0, 2].set_title('Precision', fontweight='bold')
+    axes[0, 2].set_ylabel('Score')
+    axes[0, 2].set_ylim([0, 1])
+    axes[0, 2].tick_params(axis='x', rotation=45)
+    axes[0, 2].grid(True, alpha=0.3, axis='y')
+    for i, v in enumerate(precision_scores):
+        axes[0, 2].text(i, v + 0.02, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+    
+    # Plot 4: Recall
+    axes[1, 0].bar(model_names, recall_scores, color='#f39c12', alpha=0.8)
+    axes[1, 0].set_title('Recall', fontweight='bold')
+    axes[1, 0].set_ylabel('Score')
+    axes[1, 0].set_ylim([0, 1])
+    axes[1, 0].tick_params(axis='x', rotation=45)
+    axes[1, 0].grid(True, alpha=0.3, axis='y')
+    for i, v in enumerate(recall_scores):
+        axes[1, 0].text(i, v + 0.02, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+    
+    # Plot 5: ROC AUC
+    axes[1, 1].bar(model_names, roc_auc_scores, color='#9b59b6', alpha=0.8)
+    axes[1, 1].set_title('ROC AUC', fontweight='bold')
+    axes[1, 1].set_ylabel('Score')
+    axes[1, 1].set_ylim([0, 1])
+    axes[1, 1].tick_params(axis='x', rotation=45)
+    axes[1, 1].grid(True, alpha=0.3, axis='y')
+    for i, v in enumerate(roc_auc_scores):
+        axes[1, 1].text(i, v + 0.02, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+    
+    # Plot 6: Overall comparison
+    ax = axes[1, 2]
+    x = np.arange(len(model_names))
+    width = 0.15
+    
+    ax.bar(x - 2*width, accuracy_scores, width, label='Accuracy', alpha=0.8)
+    ax.bar(x - width, f1_scores, width, label='F1 Score', alpha=0.8)
+    ax.bar(x, precision_scores, width, label='Precision', alpha=0.8)
+    ax.bar(x + width, recall_scores, width, label='Recall', alpha=0.8)
+    ax.bar(x + 2*width, roc_auc_scores, width, label='ROC AUC', alpha=0.8)
+    
+    ax.set_title('All Metrics Comparison', fontweight='bold')
+    ax.set_ylabel('Score')
+    ax.set_ylim([0, 1])
+    ax.set_xticks(x)
+    ax.set_xticklabels(model_names, rotation=45, ha='right')
+    ax.legend(loc='upper left', fontsize=8)
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"\nTraining comparison plot saved to: {save_path}")
+    plt.show()
 
 
 def test(models: dict, scaler, df_test: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0):
@@ -428,5 +699,169 @@ def test(models: dict, scaler, df_test: pd.DataFrame, target_bars: int = 45, tar
             'roc_auc': roc_auc,
             'y_pred': y_pred_test,
         }
-
+    
+    # Print summary and create visualizations
+    print_test_results_summary(results_test)
+    plot_model_comparison(results_test)
+    
     return results_test
+
+
+def print_test_results_summary(results_test: dict):
+    """
+    Print summary of test results for all models.
+    
+    Parameters:
+    -----------
+    results_test : dict
+        Dictionary with test metrics for each model
+    """
+    print(f"\n{'='*80}")
+    print(f"TEST RESULTS SUMMARY")
+    print(f"{'='*80}")
+    
+    # Create summary dataframe
+    summary_data = []
+    for model_name, metrics in results_test.items():
+        summary_data.append({
+            'Model': model_name,
+            'Accuracy': metrics['accuracy'],
+            'F1 Score': metrics['f1'],
+            'Precision': metrics['precision'],
+            'Recall': metrics['recall'],
+            'ROC AUC': metrics['roc_auc']
+        })
+    
+    summary_df = pd.DataFrame(summary_data)
+    summary_df = summary_df.sort_values('F1 Score', ascending=False)
+    
+    print("\n" + summary_df.to_string(index=False))
+    
+    # Find best model for each metric
+    print(f"\n{'='*80}")
+    print(f"BEST MODELS BY METRIC")
+    print(f"{'='*80}")
+    
+    best_accuracy = summary_df.loc[summary_df['Accuracy'].idxmax()]
+    best_f1 = summary_df.loc[summary_df['F1 Score'].idxmax()]
+    best_precision = summary_df.loc[summary_df['Precision'].idxmax()]
+    best_recall = summary_df.loc[summary_df['Recall'].idxmax()]
+    best_roc_auc = summary_df.loc[summary_df['ROC AUC'].idxmax()]
+    
+    print(f"  Best Accuracy:  {best_accuracy['Model']} ({best_accuracy['Accuracy']:.4f})")
+    print(f"  Best F1 Score:  {best_f1['Model']} ({best_f1['F1 Score']:.4f})")
+    print(f"  Best Precision: {best_precision['Model']} ({best_precision['Precision']:.4f})")
+    print(f"  Best Recall:    {best_recall['Model']} ({best_recall['Recall']:.4f})")
+    print(f"  Best ROC AUC:   {best_roc_auc['Model']} ({best_roc_auc['ROC AUC']:.4f})")
+
+
+def plot_model_comparison(results_test: dict, save_path: str = 'plots/model_comparison_test.png'):
+    """
+    Create visualization comparing model performance.
+    
+    Parameters:
+    -----------
+    results_test : dict
+        Dictionary with test metrics for each model
+    save_path : str
+        Path to save the plot
+    """
+    import os
+    import matplotlib.pyplot as plt
+    
+    # Create plots directory if it doesn't exist
+    os.makedirs('plots', exist_ok=True)
+    
+    # Prepare data
+    model_names = []
+    accuracy_scores = []
+    f1_scores = []
+    precision_scores = []
+    recall_scores = []
+    roc_auc_scores = []
+    
+    for model_name, metrics in results_test.items():
+        model_names.append(model_name.replace('_', ' ').title())
+        accuracy_scores.append(metrics['accuracy'])
+        f1_scores.append(metrics['f1'])
+        precision_scores.append(metrics['precision'])
+        recall_scores.append(metrics['recall'])
+        roc_auc_scores.append(metrics['roc_auc'])
+    
+    # Create figure with subplots
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    fig.suptitle('Model Performance Comparison on Test Set', fontsize=16, fontweight='bold')
+    
+    # Plot 1: Accuracy
+    axes[0, 0].bar(model_names, accuracy_scores, color='#3498db', alpha=0.8)
+    axes[0, 0].set_title('Accuracy', fontweight='bold')
+    axes[0, 0].set_ylabel('Score')
+    axes[0, 0].set_ylim([0, 1])
+    axes[0, 0].tick_params(axis='x', rotation=45)
+    axes[0, 0].grid(True, alpha=0.3, axis='y')
+    for i, v in enumerate(accuracy_scores):
+        axes[0, 0].text(i, v + 0.02, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+    
+    # Plot 2: F1 Score
+    axes[0, 1].bar(model_names, f1_scores, color='#2ecc71', alpha=0.8)
+    axes[0, 1].set_title('F1 Score', fontweight='bold')
+    axes[0, 1].set_ylabel('Score')
+    axes[0, 1].set_ylim([0, 1])
+    axes[0, 1].tick_params(axis='x', rotation=45)
+    axes[0, 1].grid(True, alpha=0.3, axis='y')
+    for i, v in enumerate(f1_scores):
+        axes[0, 1].text(i, v + 0.02, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+    
+    # Plot 3: Precision
+    axes[0, 2].bar(model_names, precision_scores, color='#e74c3c', alpha=0.8)
+    axes[0, 2].set_title('Precision', fontweight='bold')
+    axes[0, 2].set_ylabel('Score')
+    axes[0, 2].set_ylim([0, 1])
+    axes[0, 2].tick_params(axis='x', rotation=45)
+    axes[0, 2].grid(True, alpha=0.3, axis='y')
+    for i, v in enumerate(precision_scores):
+        axes[0, 2].text(i, v + 0.02, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+    
+    # Plot 4: Recall
+    axes[1, 0].bar(model_names, recall_scores, color='#f39c12', alpha=0.8)
+    axes[1, 0].set_title('Recall', fontweight='bold')
+    axes[1, 0].set_ylabel('Score')
+    axes[1, 0].set_ylim([0, 1])
+    axes[1, 0].tick_params(axis='x', rotation=45)
+    axes[1, 0].grid(True, alpha=0.3, axis='y')
+    for i, v in enumerate(recall_scores):
+        axes[1, 0].text(i, v + 0.02, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+    
+    # Plot 5: ROC AUC
+    axes[1, 1].bar(model_names, roc_auc_scores, color='#9b59b6', alpha=0.8)
+    axes[1, 1].set_title('ROC AUC', fontweight='bold')
+    axes[1, 1].set_ylabel('Score')
+    axes[1, 1].set_ylim([0, 1])
+    axes[1, 1].tick_params(axis='x', rotation=45)
+    axes[1, 1].grid(True, alpha=0.3, axis='y')
+    for i, v in enumerate(roc_auc_scores):
+        axes[1, 1].text(i, v + 0.02, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+    
+    # Plot 6: Overall comparison (radar chart style)
+    ax = axes[1, 2]
+    x = np.arange(len(model_names))
+    width = 0.15
+    
+    ax.bar(x - 2*width, accuracy_scores, width, label='Accuracy', alpha=0.8)
+    ax.bar(x - width, f1_scores, width, label='F1 Score', alpha=0.8)
+    ax.bar(x, precision_scores, width, label='Precision', alpha=0.8)
+    ax.bar(x + width, recall_scores, width, label='Recall', alpha=0.8)
+    ax.bar(x + 2*width, roc_auc_scores, width, label='ROC AUC', alpha=0.8)
+    
+    ax.set_title('All Metrics Comparison', fontweight='bold')
+    ax.set_ylabel('Score')
+    ax.set_ylim([0, 1])
+    ax.set_xticks(x)
+    ax.set_xticklabels(model_names, rotation=45, ha='right')
+    ax.legend(loc='upper left', fontsize=8)
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"\nModel comparison plot saved to: {save_path}")
+    plt.show()
