@@ -12,5 +12,10 @@ tensorflow>=2.10.0
 xgboost>=1.6.0
 lightgbm>=3.3.0
 
+# Backtesting Libraries
+backtesting>=0.3.3
+backtrader>=1.9.76
+bokeh>=2.4.0  # For backtesting.py interactive plots
+
 # Optional: For GPU support (uncomment if needed)
 # tensorflow-gpu>=2.10.0
