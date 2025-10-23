@@ -31,16 +31,19 @@ The `MLBacktester` class allows you to backtest trading strategies that use ML m
 
 ```python
 from src.MLBacktester import MLBacktester
-from run_me import train, prepare_data
+from src.model_loader import load_all_models, load_scaler
+from run_me import prepare_data
 import pandas as pd
 
-# Load and prepare data
-df_train = pd.read_csv("data/btc_2022.csv")
+# Load pre-trained models (train first with train_and_save_models.py)
+models = load_all_models()
+scaler = load_scaler()
+
+# Load test data
 df_test = pd.read_csv("data/btc_2023.csv")
 
-# Train models
-models, scaler, train_results, best_model_name = train(df_train)
-best_model = models[best_model_name][0]
+# Select a model to backtest
+best_model = models['random_forest']  # or any other model name
 
 # Prepare test data with features
 from src.FeaturesGenerator import FeaturesGenerator
@@ -75,13 +78,21 @@ backtester.plot_results(results, df_test_with_features, save_path='plots/backtes
 
 ### 2. Run Complete Example
 
+First, train and save models (if not already done):
+
+```bash
+python train_and_save_models.py
+```
+
+Then run the backtest examples:
+
 ```bash
 python backtest_example.py
 ```
 
 This will:
-- Train multiple ML models
-- Backtest the best model
+- Load all pre-trained models
+- Backtest each model
 - Compare different trailing stop percentages
 - Compare all models
 - Test conservative vs aggressive strategies

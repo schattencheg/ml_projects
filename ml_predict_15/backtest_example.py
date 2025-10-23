@@ -11,7 +11,8 @@ This example demonstrates how to:
 import pandas as pd
 import numpy as np
 from src.MLBacktester import MLBacktester
-from run_me import prepare_data, fit_scaler, train
+from src.data_preparation import prepare_data
+from src.model_loader import load_all_models, load_scaler, list_available_models
 import matplotlib.pyplot as plt
 
 
@@ -237,8 +238,7 @@ def compare_models(
     
     results_list = []
     
-    for model_name, model_data in models.items():
-        model = model_data[0]
+    for model_name, model in models.items():
         
         backtester = MLBacktester(
             initial_capital=10000.0,
@@ -320,12 +320,26 @@ def main():
     print(f"Training data shape: {df_train.shape}")
     print(f"Test data shape: {df_test.shape}")
     
-    # Train models
+    # Load pre-trained models
     print("\n" + "="*80)
-    print("TRAINING MODELS")
+    print("LOADING PRE-TRAINED MODELS")
     print("="*80)
     
-    models, scaler, train_results, best_model_name = train(df_train)
+    print("\nAvailable models:")
+    available_models = list_available_models()
+    
+    if len(available_models) == 0:
+        print("\n❌ No trained models found!")
+        print("Please run 'python run_me.py' first to train models.")
+        return
+    
+    models = load_all_models()
+    scaler = load_scaler()
+    
+    # Use the first model as default
+    best_model_name = available_models[0]
+    print(f"\n  Default model for examples: {best_model_name}")
+    print(f"  Total models loaded: {len(models)}")
     
     # Prepare test data to get feature columns
     X_test, y_test = prepare_data(df_test, target_bars=45, target_pct=3.0)
@@ -333,11 +347,11 @@ def main():
     
     # Add features to test dataframe for backtesting
     from src.FeaturesGenerator import FeaturesGenerator
-    fg = FeaturesGenerator(df_test)
-    df_test_with_features = fg.generate_all_features()
+    fg = FeaturesGenerator()
+    df_test_with_features = fg.add_features(df_test)
     
     # Ensure we have the required columns
-    df_test_with_features = df_test_with_features[['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'] + X_columns].dropna()
+    df_test_with_features = df_test_with_features[['Timestamp', 'Open', 'High', 'Low', 'Close'] + X_columns].dropna()
     
     print(f"\nTest data with features shape: {df_test_with_features.shape}")
     
@@ -346,7 +360,7 @@ def main():
     print("EXAMPLE 1: BACKTEST BEST MODEL")
     print("="*80)
     
-    best_model = models[best_model_name][0]
+    best_model = models[best_model_name]
     
     backtester, results = backtest_single_model(
         model_name=best_model_name,

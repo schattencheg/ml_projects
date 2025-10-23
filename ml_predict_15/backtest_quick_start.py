@@ -7,8 +7,9 @@ Run this file to see a complete backtest in action.
 
 import pandas as pd
 from src.MLBacktester import MLBacktester
-from run_me import train, prepare_data
+from src.data_preparation import prepare_data
 from src.FeaturesGenerator import FeaturesGenerator
+from src.model_loader import load_all_models, load_scaler, list_available_models
 
 
 def main():
@@ -25,11 +26,23 @@ def main():
     print(f"  Training data: {df_train.shape[0]} rows")
     print(f"  Test data: {df_test.shape[0]} rows")
     
-    # Step 2: Train ML models
-    print("\n[2/5] Training ML models...")
-    models, scaler, train_results, best_model_name = train(df_train)
-    print(f"  Best model: {best_model_name}")
-    print(f"  Training accuracy: {train_results[best_model_name]['accuracy']:.4f}")
+    # Step 2: Load pre-trained models
+    print("\n[2/5] Loading pre-trained models...")
+    print("\nAvailable models:")
+    available_models = list_available_models()
+    
+    if len(available_models) == 0:
+        print("\n❌ No trained models found!")
+        print("Please run 'python run_me.py' first to train models.")
+        return
+    
+    models = load_all_models()
+    scaler = load_scaler()
+    
+    # Use the first model as the best (or you can specify which one)
+    best_model_name = available_models[0]
+    print(f"\n  Using model: {best_model_name}")
+    print(f"  Total models loaded: {len(models)}")
     
     # Step 3: Prepare test data with features
     print("\n[3/5] Preparing test data with features...")
@@ -68,7 +81,7 @@ def main():
     
     # Step 5: Run backtest
     print("\n[5/5] Running backtest...")
-    best_model = models[best_model_name][0]
+    best_model = models[best_model_name]
     
     results = backtester.run_backtest(
         df=df_test_with_features,
