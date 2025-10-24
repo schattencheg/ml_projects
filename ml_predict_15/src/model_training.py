@@ -8,6 +8,9 @@ import pandas as pd
 import numpy as np
 import os
 import multiprocessing
+import time
+from datetime import datetime
+from tqdm import tqdm
 from sklearn.linear_model import LogisticRegression, RidgeClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
@@ -132,6 +135,7 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
     print(f"{'='*80}\n")
     models = {
         # Traditional ML models with class_weight='balanced' and multi-core support
+        # Each model is a tuple: (model_instance, params_dict, enabled_flag)
         "logistic_regression": (
             LogisticRegression(
                 max_iter=1000, 
@@ -139,22 +143,26 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
                 class_weight='balanced',
                 n_jobs=n_jobs  # Multi-core support
             ),
-            {"max_iter": 1000, "class_weight": "balanced", "n_jobs": n_jobs}
+            {"max_iter": 1000, "class_weight": "balanced", "n_jobs": n_jobs},
+            True  # Enabled
         ),
         "ridge_classifier": (
             RidgeClassifier(random_state=42, class_weight='balanced'),
-            {"class_weight": "balanced"}  # Ridge doesn't support n_jobs
+            {"class_weight": "balanced"},  # Ridge doesn't support n_jobs
+            True  # Enabled
         ),
         "naive_bayes": (
             GaussianNB(),
-            {}  # Naive Bayes doesn't support class_weight or n_jobs
+            {},  # Naive Bayes doesn't support class_weight or n_jobs
+            True  # Enabled
         ),
         "knn_k_neighbours": (
             KNeighborsClassifier(
                 n_neighbors=5,
                 n_jobs=n_jobs  # Multi-core support
             ),
-            {"n_neighbors": 5, "n_jobs": n_jobs}
+            {"n_neighbors": 5, "n_jobs": n_jobs},
+            True  # Enabled
         ),
         "decision_tree": (
             DecisionTreeClassifier(
@@ -162,7 +170,8 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
                 random_state=42, 
                 class_weight='balanced'
             ),
-            {"max_depth": 10, "class_weight": "balanced"}  # Decision tree doesn't support n_jobs
+            {"max_depth": 10, "class_weight": "balanced"},  # Decision tree doesn't support n_jobs
+            True  # Enabled
         ),
         "random_forest": (
             RandomForestClassifier(
@@ -172,7 +181,8 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
                 class_weight='balanced',
                 n_jobs=n_jobs  # Multi-core support
             ),
-            {"n_estimators": 100, "max_depth": 10, "class_weight": "balanced", "n_jobs": n_jobs}
+            {"n_estimators": 100, "max_depth": 10, "class_weight": "balanced", "n_jobs": n_jobs},
+            True  # Enabled
         ),
         "gradient_boosting": (
             GradientBoostingClassifier(
@@ -180,7 +190,8 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
                 max_depth=5, 
                 random_state=42
             ),
-            {"n_estimators": 100, "max_depth": 5}  # GB doesn't support class_weight or n_jobs
+            {"n_estimators": 100, "max_depth": 5},  # GB doesn't support class_weight or n_jobs
+            False  # Disabled (slow, use XGBoost instead)
         ),
         "svm_support_vector_classification": (
             SVC(
@@ -189,7 +200,8 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
                 random_state=42, 
                 class_weight='balanced'
             ),
-            {"kernel": "rbf", "class_weight": "balanced"}  # SVM doesn't benefit from n_jobs for small datasets
+            {"kernel": "rbf", "class_weight": "balanced"},  # SVM doesn't benefit from n_jobs for small datasets
+            False  # Disabled (very slow on large datasets)
         ),
     }
     
@@ -214,7 +226,8 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
         
         models["xgboost"] = (
             xgb.XGBClassifier(**xgb_params),
-            xgb_params
+            xgb_params,
+            True  # Enabled
         )
     
     # Add LightGBM if available (with multi-core support)
@@ -235,7 +248,8 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
         
         models["lightgbm"] = (
             lgb.LGBMClassifier(**lgb_params),
-            lgb_params
+            lgb_params,
+            True  # Enabled
         )
     return models
 
@@ -269,7 +283,8 @@ def add_neural_network_models(models, input_shape, sequence_length=60):
             sequence_length=sequence_length,
             dropout_rate=0.2
         ),
-        {"sequence_length": sequence_length}
+        {"sequence_length": sequence_length},
+        'enabled': False
     )
     
     # Add CNN
@@ -280,7 +295,8 @@ def add_neural_network_models(models, input_shape, sequence_length=60):
             sequence_length=sequence_length,
             dropout_rate=0.2
         ),
-        {"sequence_length": sequence_length}
+        {"sequence_length": sequence_length},
+        'enabled': False
     )
     
     # Add Hybrid LSTM-CNN
@@ -291,7 +307,8 @@ def add_neural_network_models(models, input_shape, sequence_length=60):
             sequence_length=sequence_length,
             dropout_rate=0.3
         ),
-        {"sequence_length": sequence_length}
+        {"sequence_length": sequence_length},
+        'enabled': False
     )
     
     return models
@@ -377,8 +394,12 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
     Utils.print_color(f"Model: {model_name.upper()}", 'magenta')
     Utils.print_color(f"{'='*80}", 'magenta')
     
-    # Train the model
+    # Train the model with time tracking
+    print(f"Training {model_name}...", end=' ', flush=True)
+    start_time = time.time()
     model.fit(X_train_scaled, y_train)
+    training_time = time.time() - start_time
+    print(f"✓ Completed in {training_time:.2f} seconds")
     
     # Make predictions on validation set
     y_pred = model.predict(X_val_scaled)
@@ -450,7 +471,8 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
         'recall': recall,
         'roc_auc': roc_auc,
         'y_pred': y_pred,
-        'model': model
+        'model': model,
+        'training_time': training_time
     }
 
 
@@ -521,7 +543,7 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
     models = get_model_configs(use_gpu=use_gpu, n_jobs=n_jobs)
     
     # Add neural network models if TensorFlow is available
-    if False and TENSORFLOW_AVAILABLE:
+    if TENSORFLOW_AVAILABLE:
         sequence_length = 60
         input_shape = (sequence_length, X_train.shape[1])
         models = add_neural_network_models(models, input_shape, sequence_length)
@@ -530,50 +552,170 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
     scaler, X_train_scaled = fit_scaler_minmax(X_train)
     X_val_scaled = scaler.transform(X_val)
 
+    # Filter enabled models only
+    enabled_models = {name: data for name, data in models.items() if len(data) >= 3 and data[2]}
+    disabled_models = {name: data for name, data in models.items() if len(data) < 3 or not data[2]}
+    
     # Train and evaluate models
     print("="*80)
     print("TRAINING AND EVALUATING MODELS")
     print("="*80)
+    print(f"Total models available: {len(models)}")
+    print(f"Enabled models: {len(enabled_models)}")
+    if disabled_models:
+        print(f"Disabled models: {', '.join(disabled_models.keys())}")
+    print()
 
     best_model = None
     best_score = 0
     best_model_name = ""
     results = {}
+    total_training_time = 0
 
-    for model_name, model_data in models.items():
-        model = model_data[0]
+    # Training loop with progress bar (only enabled models)
+    with tqdm(total=len(enabled_models), desc="Training Progress", unit="model", 
+              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
         
-        # Train and evaluate
-        result = train_and_evaluate_model(
-            model, model_name, X_train_scaled, y_train, X_val_scaled, y_val
-        )
-        
-        results[model_name] = result
-        
-        # Track best model
-        if result['accuracy'] > best_score:
-            best_score = result['accuracy']
-            best_model = model
-            best_model_name = model_name
+        for model_name, model_data in enabled_models.items():
+            model = model_data[0]
+            pbar.set_description(f"Training {model_name}")
+            
+            # Train and evaluate
+            result = train_and_evaluate_model(
+                model, model_name, X_train_scaled, y_train, X_val_scaled, y_val
+            )
+            
+            results[model_name] = result
+            total_training_time += result['training_time']
+            
+            # Track best model
+            if result['accuracy'] > best_score:
+                best_score = result['accuracy']
+                best_model = model
+                best_model_name = model_name
+            
+            pbar.update(1)
 
     print(f"\n{'='*80}")
-    print(f"BEST MODEL: {best_model_name.upper()} with accuracy: {best_score:.4f}")
+    print(f"TRAINING COMPLETE")
+    print(f"{'='*80}")
+    print(f"Total training time: {total_training_time:.2f} seconds ({total_training_time/60:.2f} minutes)")
+    print(f"Average time per model: {total_training_time/len(models):.2f} seconds")
+    print(f"\nBEST MODEL: {best_model_name.upper()} with accuracy: {best_score:.4f}")
     print(f"{'='*80}")
     
     # Print training results summary and create visualizations
     print_training_results_summary(results)
     plot_training_comparison(results)
 
-    # Save all models and scaler
-    save_all_models(models, scaler, models_dir='models')
+    # Create timestamped directory for this training session
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    models_dir = f'models/{timestamp}'
+    os.makedirs(models_dir, exist_ok=True)
     
-    # Also save the best model separately
-    import os
+    print(f"\n{'='*80}")
+    print(f"SAVING MODELS AND RESULTS")
+    print(f"{'='*80}")
+    print(f"Save directory: {models_dir}")
+    
+    # Save all enabled models and scaler to timestamped directory
+    save_all_models(enabled_models, scaler, models_dir=models_dir)
+    
+    # Save the best model separately
     import joblib
-    os.makedirs('models', exist_ok=True)
-    model_path = f'models/{best_model_name}_best.joblib'
-    joblib.dump(best_model, model_path)
-    print(f"\nBest model also saved separately to: {model_path}")
+    best_model_path = os.path.join(models_dir, f'{best_model_name}_best.joblib')
+    joblib.dump(best_model, best_model_path)
+    print(f"Best model saved to: {best_model_path}")
+    
+    # Save training results summary to CSV
+    summary_data = []
+    for model_name, metrics in results.items():
+        summary_data.append({
+            'Model': model_name,
+            'Accuracy': metrics['accuracy'],
+            'F1_Score': metrics['f1'],
+            'Precision': metrics['precision'],
+            'Recall': metrics['recall'],
+            'ROC_AUC': metrics['roc_auc'],
+            'Training_Time_Seconds': metrics.get('training_time', 0.0)
+        })
+    
+    summary_df = pd.DataFrame(summary_data)
+    summary_df = summary_df.sort_values('F1_Score', ascending=False)
+    
+    # Add summary statistics
+    summary_stats = pd.DataFrame([{
+        'Model': 'SUMMARY',
+        'Accuracy': '',
+        'F1_Score': '',
+        'Precision': '',
+        'Recall': '',
+        'ROC_AUC': '',
+        'Training_Time_Seconds': ''
+    }, {
+        'Model': f'Best Model: {best_model_name}',
+        'Accuracy': best_score,
+        'F1_Score': results[best_model_name]['f1'],
+        'Precision': results[best_model_name]['precision'],
+        'Recall': results[best_model_name]['recall'],
+        'ROC_AUC': results[best_model_name]['roc_auc'],
+        'Training_Time_Seconds': results[best_model_name].get('training_time', 0.0)
+    }, {
+        'Model': 'Total Training Time',
+        'Accuracy': '',
+        'F1_Score': '',
+        'Precision': '',
+        'Recall': '',
+        'ROC_AUC': '',
+        'Training_Time_Seconds': f'{total_training_time:.2f}s ({total_training_time/60:.2f}min)'
+    }, {
+        'Model': 'Average Time per Model',
+        'Accuracy': '',
+        'F1_Score': '',
+        'Precision': '',
+        'Recall': '',
+        'ROC_AUC': '',
+        'Training_Time_Seconds': f'{total_training_time/len(models):.2f}s'
+    }])
+    
+    summary_with_stats = pd.concat([summary_df, summary_stats], ignore_index=True)
+    
+    # Save to CSV
+    csv_path = os.path.join(models_dir, 'training_results_summary.csv')
+    summary_with_stats.to_csv(csv_path, index=False)
+    print(f"Training results saved to: {csv_path}")
+    
+    # Save training configuration
+    config_path = os.path.join(models_dir, 'training_config.txt')
+    with open(config_path, 'w') as f:
+        f.write(f"Training Configuration\n")
+        f.write(f"{'='*80}\n")
+        f.write(f"Timestamp: {timestamp}\n")
+        f.write(f"Target Bars: {target_bars}\n")
+        f.write(f"Target Percentage: {target_pct}%\n")
+        f.write(f"SMOTE Enabled: {use_smote}\n")
+        f.write(f"GPU Enabled: {use_gpu}\n")
+        f.write(f"CPU Cores: {n_jobs}\n")
+        f.write(f"Dataset Shape: {X.shape}\n")
+        f.write(f"Class Imbalance Ratio: {imbalance_ratio:.2f}:1\n")
+        f.write(f"\nTraining Summary\n")
+        f.write(f"{'='*80}\n")
+        f.write(f"Total Models Trained: {len(models)}\n")
+        f.write(f"Best Model: {best_model_name}\n")
+        f.write(f"Best Accuracy: {best_score:.4f}\n")
+        f.write(f"Total Training Time: {total_training_time:.2f}s ({total_training_time/60:.2f}min)\n")
+        f.write(f"Average Time per Model: {total_training_time/len(models):.2f}s\n")
+    print(f"Training config saved to: {config_path}")
+    
+    # Copy visualization to timestamped directory
+    import shutil
+    src_plot = 'plots/model_comparison_training.png'
+    if os.path.exists(src_plot):
+        dst_plot = os.path.join(models_dir, 'model_comparison_training.png')
+        shutil.copy2(src_plot, dst_plot)
+        print(f"Training plot copied to: {dst_plot}")
+    
+    print(f"{'='*80}\n")
 
     return models, scaler, results, best_model_name
 
@@ -600,7 +742,8 @@ def print_training_results_summary(results: dict):
             'F1 Score': metrics['f1'],
             'Precision': metrics['precision'],
             'Recall': metrics['recall'],
-            'ROC AUC': metrics['roc_auc']
+            'ROC AUC': metrics['roc_auc'],
+            'Train Time (s)': metrics.get('training_time', 0.0)
         })
     
     summary_df = pd.DataFrame(summary_data)

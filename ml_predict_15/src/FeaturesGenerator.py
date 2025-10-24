@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import ta
 
 class FeaturesGenerator:
     def __init__(self):
@@ -13,13 +14,27 @@ class FeaturesGenerator:
         return df
 
     def add_features(self, df):
+        self.add_sma(df)
+        self.add_rsi(df)
+        return df
+
+    def add_sma(self, df, window = 10):
         # SMA small moving average
-        df['SMA_5'] = df['Close'].rolling(window=5).mean()
-        df['SMA_10'] = df['Close'].rolling(window=10).mean()
-        df['SMA_15'] = df['Close'].rolling(window=15).mean()
+        df['SMA_10'] = df['Close'].rolling(window=window).mean()
+        df['SMA_20'] = df['Close'].rolling(window=window*2).mean()
         # SMA cross
-        df['SMA_5_10'] = df['SMA_5'] - df['SMA_10']
-        df['SMA_10_15'] = df['SMA_10'] - df['SMA_15']
+        df['SMA_cross_10'] = (df['Close'] <= df['SMA_10'].shift(1) ) & (df['Close'] > df['SMA_10'])
+        df['SMA_cross_10'] = df['SMA_cross_10'].astype(int)
+        df['SMA_cross'] = (df['SMA_20'].shift(1) < df['SMA_10'].shift(1)) & (df['SMA_20'] > df['SMA_10'])
+        df['SMA_cross'] = df['SMA_cross'].astype(int)
+        # DROP SMA columns
+        df.drop(['SMA_10', 'SMA_20'], axis=1, inplace=True)
+        return df
+
+    def add_rsi(self, df, min = 30, max = 70):
+        df['RSI'] = ta.RSI(df['Close'], length=14)
+        df['RSI_cross_min'] = (df['RSI'].shift(1) < min) & (df['RSI'] > min)
+        df['RSI_cross_max'] = (df['RSI'].shift(1) > max) & (df['RSI'] < max)
         return df
 
     def add_target(self, df, N=45, M=3.0):
