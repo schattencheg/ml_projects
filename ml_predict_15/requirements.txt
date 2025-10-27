@@ -7,6 +7,7 @@ joblib
 tqdm
 imbalanced-learn>=0.10.0  # For SMOTE oversampling
 mlflow>=2.0.0  # For experiment tracking
+ccxt>=4.0.0  # For cryptocurrency exchange data
 
 # Neural Networks
 tensorflow>=2.10.0

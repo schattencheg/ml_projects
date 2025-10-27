@@ -11,8 +11,8 @@ from src.visualization import print_model_summary
 
 
 # Data paths
-PATH_TRAIN = "data/btc_2022.csv"
-PATH_TEST = "data/btc_2023.csv"
+PATH_TRAIN = "data/hour/btc.csv"
+PATH_TEST = "data/hour/btc_2025.csv"
 
 
 def main():
@@ -30,14 +30,17 @@ def main():
     print("="*80)
     # Parameters:
     # - target_bars=45: Look ahead 45 bars (e.g., 45 hours for hourly data)
-    # - target_pct=3.0: Predict if price increases by 3% or more
-    # Note: Larger target_pct (e.g., 3-5%) creates harder but more meaningful predictions
-    #       Smaller target_pct (e.g., 0.5-1%) may result in similar model performance
+    # - target_pct=0.5: Predict if price increases by 0.5% or more
+    # Note: Based on data diagnostics:
+    #       target_pct=0.5% → 11.7% positive samples (GOOD - balanced)
+    #       target_pct=1.0% → 4.1% positive samples (too few)
+    #       target_pct=3.0% → 0.4% positive samples (WAY too few, F1≈0)
+    #       Run 'python diagnose_data.py' to see full analysis
     models, scaler, train_results, best_model_name = train(
         df_train, 
         target_bars=45, 
-        target_pct=3.0,  # Changed from 1.0 to 3.0 for more meaningful predictions
-        use_smote=True,
+        target_pct=3.0,  # Optimal for this dataset (11.7% positive samples)
+        use_smote=True,   # Handle remaining imbalance (7.5:1 ratio)
         use_gpu=False,
         n_jobs=-1
     )

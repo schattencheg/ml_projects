@@ -7,20 +7,30 @@ Functions for training and evaluating ML models.
 import pandas as pd
 import numpy as np
 import os
-import multiprocessing
 import time
+import shutil
 from datetime import datetime
 from tqdm import tqdm
-from sklearn.linear_model import LogisticRegression, RidgeClassifier
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.naive_bayes import GaussianNB
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, classification_report, roc_auc_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 from sklearn.model_selection import train_test_split
-from sklearn.utils.class_weight import compute_class_weight
+
+# Import from new modular structure
 from src.data_preparation import fit_scaler_minmax, prepare_data
+from src.model_configs import (
+    get_model_configs, 
+    add_neural_network_models,
+    HARDWARE_INFO,
+    MODEL_ENABLED_CONFIG
+)
+from src.model_evaluation import (
+    find_optimal_threshold,
+    print_training_results_summary,
+    print_test_results_summary,
+    plot_training_comparison,
+    plot_model_comparison
+)
+from src.model_loader import save_all_models
+from src.utils import Utils
 
 # Try to import SMOTE for handling imbalanced data
 try:
@@ -38,359 +48,11 @@ try:
 except ImportError:
     MLFLOW_AVAILABLE = False
     print("Warning: MLflow not installed. Install with: pip install mlflow")
-from src.neural_models import (
-    create_lstm_model, create_cnn_model, create_hybrid_lstm_cnn_model,
-    KerasClassifierWrapper, TENSORFLOW_AVAILABLE
-)
-from src.model_loader import save_all_models
-from src.utils import Utils
 
-# Check for additional ML libraries
-try:
-    import xgboost as xgb
-    XGBOOST_AVAILABLE = True
-except ImportError:
-    XGBOOST_AVAILABLE = False
-
-try:
-    import lightgbm as lgb
-    LIGHTGBM_AVAILABLE = True
-except ImportError:
-    LIGHTGBM_AVAILABLE = False
-
-# Detect hardware capabilities
-def detect_hardware():
-    """
-    Detect available hardware for acceleration.
-    
-    Returns:
-    --------
-    hardware_info : dict
-        Dictionary with hardware capabilities
-    """
-    hardware_info = {
-        'cpu_cores': multiprocessing.cpu_count(),
-        'gpu_available': False,
-        'gpu_device': None,
-        'cuda_available': False
-    }
-    
-    # Check for CUDA/GPU support
-    try:
-        import tensorflow as tf
-        gpus = tf.config.list_physical_devices('GPU')
-        if gpus:
-            hardware_info['gpu_available'] = True
-            hardware_info['cuda_available'] = True
-            hardware_info['gpu_device'] = gpus[0].name
-            print(f"✓ GPU detected: {gpus[0].name}")
-    except:
-        pass
-    
-    # Check XGBoost GPU support
-    if XGBOOST_AVAILABLE:
-        try:
-            import xgboost as xgb
-            # Try to create a GPU-enabled booster
-            test_params = {'tree_method': 'gpu_hist', 'gpu_id': 0}
-            hardware_info['xgboost_gpu'] = True
-        except:
-            hardware_info['xgboost_gpu'] = False
-    
-    # Check LightGBM GPU support
-    if LIGHTGBM_AVAILABLE:
-        try:
-            import lightgbm as lgb
-            # LightGBM GPU support check
-            hardware_info['lightgbm_gpu'] = False  # Requires special compilation
-        except:
-            hardware_info['lightgbm_gpu'] = False
-    
-    print(f"✓ CPU cores available: {hardware_info['cpu_cores']}")
-    
-    return hardware_info
-
-# Detect hardware at module load
-HARDWARE_INFO = detect_hardware()
-
-# Model enabled/disabled configuration
-# Set to False to disable a model from training
-# Current config: Only fast models (<10 min training time)
-MODEL_ENABLED_CONFIG = {
-    'logistic_regression': True,      # Fast: ~2-5 seconds
-    'ridge_classifier': True,         # Fast: ~2-5 seconds
-    'naive_bayes': True,              # Fast: ~3-5 seconds
-    'knn_k_neighbours': False,        # SLOW: 50-120 seconds (disabled)
-    'decision_tree': True,            # Fast: ~5-10 seconds
-    'random_forest': True,            # Medium: ~15-30 seconds (acceptable)
-    'gradient_boosting': False,       # SLOW: 60+ seconds (disabled, use XGBoost)
-    'svm_support_vector_classification': False,  # VERY SLOW: 100+ seconds (disabled)
-    'xgboost': True,                  # Fast: ~3-5 seconds (optimized)
-    'lightgbm': True,                 # Fast: ~3-5 seconds (optimized)
-    'lstm': False,                    # SLOW: Neural network (disabled)
-    'cnn': False,                     # SLOW: Neural network (disabled)
-    'hybrid_lstm_cnn': False,         # SLOW: Neural network (disabled)
-}
-
-
-def get_model_configs(use_gpu=False, n_jobs=-1):
-    """
-    Get configurations for all available models with hardware acceleration.
-    
-    Parameters:
-    -----------
-    use_gpu : bool
-        Whether to use GPU acceleration (if available)
-    n_jobs : int
-        Number of CPU cores to use (-1 = all cores, 1 = single core)
-    
-    Returns:
-    --------
-    models : dict
-        Dictionary of model_name -> (model_instance, params_dict)
-    """
-    # Determine optimal number of jobs
-    if n_jobs == -1:
-        n_jobs = max(1, HARDWARE_INFO['cpu_cores'] - 1)  # Leave one core free
-    elif n_jobs == 0:
-        n_jobs = 1
-    
-    print(f"\n{'='*80}")
-    print(f"HARDWARE ACCELERATION SETTINGS")
-    print(f"{'='*80}")
-    print(f"CPU cores to use: {n_jobs} of {HARDWARE_INFO['cpu_cores']}")
-    print(f"GPU acceleration: {'Enabled' if use_gpu and HARDWARE_INFO['gpu_available'] else 'Disabled'}")
-    print(f"{'='*80}\n")
-    models = {
-        # Traditional ML models with class_weight='balanced' and multi-core support
-        # Each model is a tuple: (model_instance, params_dict, enabled_flag)
-        "logistic_regression": (
-            LogisticRegression(
-                max_iter=1000, 
-                random_state=42, 
-                class_weight='balanced',
-                n_jobs=n_jobs  # Multi-core support
-            ),
-            {"max_iter": 1000, "class_weight": "balanced", "n_jobs": n_jobs},
-            MODEL_ENABLED_CONFIG.get('logistic_regression', True)
-        ),
-        "ridge_classifier": (
-            RidgeClassifier(random_state=42, class_weight='balanced'),
-            {"class_weight": "balanced"},  # Ridge doesn't support n_jobs
-            MODEL_ENABLED_CONFIG.get('ridge_classifier', True)
-        ),
-        "naive_bayes": (
-            GaussianNB(),
-            {},  # Naive Bayes doesn't support class_weight or n_jobs
-            MODEL_ENABLED_CONFIG.get('naive_bayes', True)
-        ),
-        "knn_k_neighbours": (
-            KNeighborsClassifier(
-                n_neighbors=5,
-                algorithm='ball_tree',
-                n_jobs=-1  # Multi-core CPU support (no GPU support in scikit-learn)
-            ),
-            {"n_neighbors": 5, "algorithm": 'ball_tree', "n_jobs": -1},
-            MODEL_ENABLED_CONFIG.get('knn_k_neighbours', True)
-        ),
-        "decision_tree": (
-            DecisionTreeClassifier(
-                max_depth=10, 
-                random_state=42, 
-                class_weight='balanced'
-            ),
-            {"max_depth": 10, "class_weight": "balanced"},  # Decision tree doesn't support n_jobs
-            MODEL_ENABLED_CONFIG.get('decision_tree', True)
-        ),
-        "random_forest": (
-            RandomForestClassifier(
-                n_estimators=100, 
-                max_depth=10, 
-                random_state=42, 
-                class_weight='balanced',
-                n_jobs=n_jobs  # Multi-core CPU support (no GPU support in scikit-learn)
-            ),
-            {"n_estimators": 100, "max_depth": 10, "class_weight": "balanced", "n_jobs": n_jobs},
-            MODEL_ENABLED_CONFIG.get('random_forest', True)
-        ),
-        "gradient_boosting": (
-            GradientBoostingClassifier(
-                n_estimators=100, 
-                max_depth=5, 
-                random_state=42
-            ),
-            {"n_estimators": 100, "max_depth": 5},  # GB doesn't support class_weight or n_jobs
-            MODEL_ENABLED_CONFIG.get('gradient_boosting', True)
-        ),
-        "svm_support_vector_classification": (
-            SVC(
-                kernel='rbf', 
-                probability=True, 
-                random_state=42, 
-                class_weight='balanced'
-            ),
-            {"kernel": "rbf", "class_weight": "balanced"},  # SVM doesn't benefit from n_jobs for small datasets
-            MODEL_ENABLED_CONFIG.get('svm_support_vector_classification', True)
-        ),
-    }
-    
-    # Add XGBoost if available (with GPU support)
-    if XGBOOST_AVAILABLE:
-        xgb_params = {
-            'n_estimators': 100,
-            'max_depth': 5,
-            'learning_rate': 0.1,
-            'random_state': 42,
-            'eval_metric': 'logloss',
-            'n_jobs': n_jobs
-        }
-        
-        # Enable GPU if available and requested
-        if use_gpu and HARDWARE_INFO.get('xgboost_gpu', False):
-            xgb_params['tree_method'] = 'gpu_hist'
-            xgb_params['gpu_id'] = 0
-            print("  ✓ XGBoost: GPU acceleration enabled")
-        else:
-            xgb_params['tree_method'] = 'hist'  # Fast CPU histogram method
-        
-        models["xgboost"] = (
-            xgb.XGBClassifier(**xgb_params),
-            xgb_params,
-            MODEL_ENABLED_CONFIG.get('xgboost', True)
-        )
-    
-    # Add LightGBM if available (with multi-core support)
-    if LIGHTGBM_AVAILABLE:
-        lgb_params = {
-            'n_estimators': 100,
-            'max_depth': 5,
-            'learning_rate': 0.1,
-            'random_state': 42,
-            'verbose': -1,
-            'n_jobs': n_jobs
-        }
-        
-        # LightGBM GPU support (requires special compilation)
-        if use_gpu and HARDWARE_INFO.get('lightgbm_gpu', False):
-            lgb_params['device'] = 'gpu'
-            print("  ✓ LightGBM: GPU acceleration enabled")
-        
-        models["lightgbm"] = (
-            lgb.LGBMClassifier(**lgb_params),
-            lgb_params,
-            MODEL_ENABLED_CONFIG.get('lightgbm', True)
-        )
-    return models
-
-
-def add_neural_network_models(models, input_shape, sequence_length=60):
-    """
-    Add neural network models to the models dictionary.
-    
-    Parameters:
-    -----------
-    models : dict
-        Existing models dictionary
-    input_shape : tuple
-        Input shape for neural networks (sequence_length, features)
-    sequence_length : int
-        Sequence length for time series models
-    
-    Returns:
-    --------
-    models : dict
-        Updated models dictionary with neural networks
-    """
-    if not TENSORFLOW_AVAILABLE:
-        return models
-    
-    # Add LSTM
-    models["lstm"] = (
-        KerasClassifierWrapper(
-            create_lstm_model,
-            input_shape,
-            sequence_length=sequence_length,
-            dropout_rate=0.2
-        ),
-        {"sequence_length": sequence_length},
-        MODEL_ENABLED_CONFIG.get('lstm', True)
-    )
-    
-    # Add CNN
-    models["cnn"] = (
-        KerasClassifierWrapper(
-            create_cnn_model,
-            input_shape,
-            sequence_length=sequence_length,
-            dropout_rate=0.2
-        ),
-        {"sequence_length": sequence_length},
-        MODEL_ENABLED_CONFIG.get('cnn', True)
-    )
-    
-    # Add Hybrid LSTM-CNN
-    models["lstm_cnn_hybrid"] = (
-        KerasClassifierWrapper(
-            create_hybrid_lstm_cnn_model,
-            input_shape,
-            sequence_length=sequence_length,
-            dropout_rate=0.3
-        ),
-        {"sequence_length": sequence_length},
-        MODEL_ENABLED_CONFIG.get('hybrid_lstm_cnn', True)
-    )
-    
-    return models
-
-
-def find_optimal_threshold(model, X_val_scaled, y_val, metric='f1'):
-    """
-    Find optimal probability threshold to maximize a given metric.
-    
-    Parameters:
-    -----------
-    model : sklearn model
-        Trained model with predict_proba
-    X_val_scaled : np.ndarray
-        Validation features
-    y_val : pd.Series
-        Validation labels
-    metric : str
-        Metric to optimize ('f1', 'recall', 'precision')
-    
-    Returns:
-    --------
-    best_threshold : float
-        Optimal threshold
-    best_score : float
-        Best score achieved
-    """
-    if not hasattr(model, 'predict_proba'):
-        return 0.5, None
-    
-    y_proba = model.predict_proba(X_val_scaled)[:, 1]
-    thresholds = np.arange(0.1, 0.9, 0.05)
-    
-    best_threshold = 0.5
-    best_score = 0
-    
-    for threshold in thresholds:
-        y_pred_thresh = (y_proba >= threshold).astype(int)
-        
-        if metric == 'f1':
-            score = f1_score(y_val, y_pred_thresh, zero_division=0)
-        elif metric == 'recall':
-            score = recall_score(y_val, y_pred_thresh, zero_division=0)
-        elif metric == 'precision':
-            score = precision_score(y_val, y_pred_thresh, zero_division=0)
-        else:
-            score = f1_score(y_val, y_pred_thresh, zero_division=0)
-        
-        if score > best_score:
-            best_score = score
-            best_threshold = threshold
-    
-    return best_threshold, best_score
+# Note: Hardware detection, model configs, and evaluation functions
+# have been moved to separate modules:
+# - src/model_configs.py: get_model_configs(), add_neural_network_models(), detect_hardware()
+# - src/model_evaluation.py: find_optimal_threshold(), plotting and printing functions
 
 
 def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_scaled, y_val, optimize_threshold=True):

@@ -74,3 +74,4 @@ venv/
 wheels/
 *.db
 *_old_*
+data_server/mlartifacts/
