@@ -28,7 +28,19 @@ def main():
     print("\n" + "="*80)
     print("TRAINING MODELS")
     print("="*80)
-    models, scaler, train_results, best_model_name = train(df_train)
+    # Parameters:
+    # - target_bars=45: Look ahead 45 bars (e.g., 45 hours for hourly data)
+    # - target_pct=3.0: Predict if price increases by 3% or more
+    # Note: Larger target_pct (e.g., 3-5%) creates harder but more meaningful predictions
+    #       Smaller target_pct (e.g., 0.5-1%) may result in similar model performance
+    models, scaler, train_results, best_model_name = train(
+        df_train, 
+        target_bars=45, 
+        target_pct=3.0,  # Changed from 1.0 to 3.0 for more meaningful predictions
+        use_smote=True,
+        use_gpu=False,
+        n_jobs=-1
+    )
     
     # Print training summary
     print_model_summary(train_results)

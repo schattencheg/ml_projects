@@ -32,7 +32,7 @@ def test_small_dataset():
         models, scaler, train_results, best_model_name = train(
             df_train_sample, 
             target_bars=10,  # Reduced for faster testing
-            target_pct=2.0   # Reduced threshold
+            target_pct=1.0   # Reduced threshold
         )
         
         print(f"\nSuccessfully trained {len(models)} models!")
@@ -45,7 +45,7 @@ def test_small_dataset():
             scaler, 
             df_test_sample,
             target_bars=10,
-            target_pct=2.0
+            target_pct=1.0
         )
         
         print(f"\nSuccessfully tested {len(test_results)} models!")

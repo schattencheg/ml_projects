@@ -113,6 +113,25 @@ def detect_hardware():
 # Detect hardware at module load
 HARDWARE_INFO = detect_hardware()
 
+# Model enabled/disabled configuration
+# Set to False to disable a model from training
+# Current config: Only fast models (<10 min training time)
+MODEL_ENABLED_CONFIG = {
+    'logistic_regression': True,      # Fast: ~2-5 seconds
+    'ridge_classifier': True,         # Fast: ~2-5 seconds
+    'naive_bayes': True,              # Fast: ~3-5 seconds
+    'knn_k_neighbours': False,        # SLOW: 50-120 seconds (disabled)
+    'decision_tree': True,            # Fast: ~5-10 seconds
+    'random_forest': True,            # Medium: ~15-30 seconds (acceptable)
+    'gradient_boosting': False,       # SLOW: 60+ seconds (disabled, use XGBoost)
+    'svm_support_vector_classification': False,  # VERY SLOW: 100+ seconds (disabled)
+    'xgboost': True,                  # Fast: ~3-5 seconds (optimized)
+    'lightgbm': True,                 # Fast: ~3-5 seconds (optimized)
+    'lstm': False,                    # SLOW: Neural network (disabled)
+    'cnn': False,                     # SLOW: Neural network (disabled)
+    'hybrid_lstm_cnn': False,         # SLOW: Neural network (disabled)
+}
+
 
 def get_model_configs(use_gpu=False, n_jobs=-1):
     """
@@ -153,25 +172,26 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
                 n_jobs=n_jobs  # Multi-core support
             ),
             {"max_iter": 1000, "class_weight": "balanced", "n_jobs": n_jobs},
-            True  # Enabled
+            MODEL_ENABLED_CONFIG.get('logistic_regression', True)
         ),
         "ridge_classifier": (
             RidgeClassifier(random_state=42, class_weight='balanced'),
             {"class_weight": "balanced"},  # Ridge doesn't support n_jobs
-            True  # Enabled
+            MODEL_ENABLED_CONFIG.get('ridge_classifier', True)
         ),
         "naive_bayes": (
             GaussianNB(),
             {},  # Naive Bayes doesn't support class_weight or n_jobs
-            True  # Enabled
+            MODEL_ENABLED_CONFIG.get('naive_bayes', True)
         ),
         "knn_k_neighbours": (
             KNeighborsClassifier(
                 n_neighbors=5,
-                n_jobs=n_jobs  # Multi-core CPU support (no GPU support in scikit-learn)
+                algorithm='ball_tree',
+                n_jobs=-1  # Multi-core CPU support (no GPU support in scikit-learn)
             ),
-            {"n_neighbors": 5, "n_jobs": n_jobs},
-            True  # Enabled
+            {"n_neighbors": 5, "algorithm": 'ball_tree', "n_jobs": -1},
+            MODEL_ENABLED_CONFIG.get('knn_k_neighbours', True)
         ),
         "decision_tree": (
             DecisionTreeClassifier(
@@ -180,7 +200,7 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
                 class_weight='balanced'
             ),
             {"max_depth": 10, "class_weight": "balanced"},  # Decision tree doesn't support n_jobs
-            True  # Enabled
+            MODEL_ENABLED_CONFIG.get('decision_tree', True)
         ),
         "random_forest": (
             RandomForestClassifier(
@@ -191,7 +211,7 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
                 n_jobs=n_jobs  # Multi-core CPU support (no GPU support in scikit-learn)
             ),
             {"n_estimators": 100, "max_depth": 10, "class_weight": "balanced", "n_jobs": n_jobs},
-            True  # Enabled
+            MODEL_ENABLED_CONFIG.get('random_forest', True)
         ),
         "gradient_boosting": (
             GradientBoostingClassifier(
@@ -200,7 +220,7 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
                 random_state=42
             ),
             {"n_estimators": 100, "max_depth": 5},  # GB doesn't support class_weight or n_jobs
-            False  # Disabled (slow, use XGBoost instead)
+            MODEL_ENABLED_CONFIG.get('gradient_boosting', True)
         ),
         "svm_support_vector_classification": (
             SVC(
@@ -210,7 +230,7 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
                 class_weight='balanced'
             ),
             {"kernel": "rbf", "class_weight": "balanced"},  # SVM doesn't benefit from n_jobs for small datasets
-            False  # Disabled (very slow on large datasets)
+            MODEL_ENABLED_CONFIG.get('svm_support_vector_classification', True)
         ),
     }
     
@@ -236,7 +256,7 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
         models["xgboost"] = (
             xgb.XGBClassifier(**xgb_params),
             xgb_params,
-            True  # Enabled
+            MODEL_ENABLED_CONFIG.get('xgboost', True)
         )
     
     # Add LightGBM if available (with multi-core support)
@@ -258,7 +278,7 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
         models["lightgbm"] = (
             lgb.LGBMClassifier(**lgb_params),
             lgb_params,
-            True  # Enabled
+            MODEL_ENABLED_CONFIG.get('lightgbm', True)
         )
     return models
 
@@ -293,7 +313,7 @@ def add_neural_network_models(models, input_shape, sequence_length=60):
             dropout_rate=0.2
         ),
         {"sequence_length": sequence_length},
-        False
+        MODEL_ENABLED_CONFIG.get('lstm', True)
     )
     
     # Add CNN
@@ -305,7 +325,7 @@ def add_neural_network_models(models, input_shape, sequence_length=60):
             dropout_rate=0.2
         ),
         {"sequence_length": sequence_length},
-        False
+        MODEL_ENABLED_CONFIG.get('cnn', True)
     )
     
     # Add Hybrid LSTM-CNN
@@ -317,7 +337,7 @@ def add_neural_network_models(models, input_shape, sequence_length=60):
             dropout_rate=0.3
         ),
         {"sequence_length": sequence_length},
-        False
+        MODEL_ENABLED_CONFIG.get('hybrid_lstm_cnn', True)
     )
     
     return models
@@ -650,15 +670,22 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
             # Log to MLflow if enabled
             if use_mlflow and MLFLOW_AVAILABLE:
                 try:
-                    # Log model-specific metrics
-                    mlflow.log_metric(f"{model_name}_accuracy", result['accuracy'])
-                    mlflow.log_metric(f"{model_name}_f1_score", result['f1_score'])
-                    mlflow.log_metric(f"{model_name}_precision", result['precision'])
-                    mlflow.log_metric(f"{model_name}_recall", result['recall'])
-                    mlflow.log_metric(f"{model_name}_roc_auc", result['roc_auc'])
-                    mlflow.log_metric(f"{model_name}_training_time", result['training_time'])
+                    # Check if MLflow run is active
+                    active_run = mlflow.active_run()
+                    if active_run is None:
+                        print(f"  ✗ MLflow: No active run found for {model_name}")
+                    else:
+                        # Log model-specific metrics
+                        mlflow.log_metric(f"{model_name}_accuracy", float(result['accuracy']))
+                        mlflow.log_metric(f"{model_name}_f1_score", float(result['f1_score']))
+                        mlflow.log_metric(f"{model_name}_precision", float(result['precision']))
+                        mlflow.log_metric(f"{model_name}_recall", float(result['recall']))
+                        mlflow.log_metric(f"{model_name}_roc_auc", float(result['roc_auc']))
+                        mlflow.log_metric(f"{model_name}_training_time", float(result['training_time']))
+                        print(f"  ✓ MLflow: Logged metrics for {model_name}")
                 except Exception as e:
-                    print(f"Warning: Failed to log metrics for {model_name} to MLflow: {e}")
+                    print(f"  ✗ MLflow: Failed to log metrics for {model_name}")
+                    print(f"     Error: {type(e).__name__}: {str(e)}")
             
             # Track best model
             if result['accuracy'] > best_score:
@@ -842,7 +869,7 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
             except:
                 pass
 
-    return models, scaler, results, best_model_name
+    return enabled_models, scaler, results, best_model_name
 
 
 def print_training_results_summary(results: dict):
