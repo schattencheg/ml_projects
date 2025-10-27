@@ -29,6 +29,15 @@ try:
 except ImportError:
     SMOTE_AVAILABLE = False
     print("Warning: imbalanced-learn not installed. Install with: pip install imbalanced-learn")
+
+# Try to import MLflow for experiment tracking
+try:
+    import mlflow
+    import mlflow.sklearn
+    MLFLOW_AVAILABLE = True
+except ImportError:
+    MLFLOW_AVAILABLE = False
+    print("Warning: MLflow not installed. Install with: pip install mlflow")
 from src.neural_models import (
     create_lstm_model, create_cnn_model, create_hybrid_lstm_cnn_model,
     KerasClassifierWrapper, TENSORFLOW_AVAILABLE
@@ -159,7 +168,7 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
         "knn_k_neighbours": (
             KNeighborsClassifier(
                 n_neighbors=5,
-                n_jobs=n_jobs  # Multi-core support
+                n_jobs=n_jobs  # Multi-core CPU support (no GPU support in scikit-learn)
             ),
             {"n_neighbors": 5, "n_jobs": n_jobs},
             True  # Enabled
@@ -179,7 +188,7 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
                 max_depth=10, 
                 random_state=42, 
                 class_weight='balanced',
-                n_jobs=n_jobs  # Multi-core support
+                n_jobs=n_jobs  # Multi-core CPU support (no GPU support in scikit-learn)
             ),
             {"n_estimators": 100, "max_depth": 10, "class_weight": "balanced", "n_jobs": n_jobs},
             True  # Enabled
@@ -284,7 +293,7 @@ def add_neural_network_models(models, input_shape, sequence_length=60):
             dropout_rate=0.2
         ),
         {"sequence_length": sequence_length},
-        'enabled': False
+        False
     )
     
     # Add CNN
@@ -296,7 +305,7 @@ def add_neural_network_models(models, input_shape, sequence_length=60):
             dropout_rate=0.2
         ),
         {"sequence_length": sequence_length},
-        'enabled': False
+        False
     )
     
     # Add Hybrid LSTM-CNN
@@ -308,7 +317,7 @@ def add_neural_network_models(models, input_shape, sequence_length=60):
             dropout_rate=0.3
         ),
         {"sequence_length": sequence_length},
-        'enabled': False
+        False
     )
     
     return models
@@ -402,7 +411,10 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
     print(f"✓ Completed in {training_time:.2f} seconds")
     
     # Make predictions on validation set
+    start_time = time.time()
     y_pred = model.predict(X_val_scaled)
+    prediction_time = time.time() - start_time
+    print(f"✓ Prediction completed in {prediction_time:.2f} seconds")
     
     # Calculate metrics with default threshold (0.5)
     accuracy = accuracy_score(y_val, y_pred)
@@ -476,9 +488,9 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
     }
 
 
-def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0, use_smote: bool = True, use_gpu: bool = False, n_jobs: int = -1):
+def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0, use_smote: bool = True, use_gpu: bool = False, n_jobs: int = -1, use_mlflow: bool = True, mlflow_tracking_uri: str = "http://localhost:5000"):
     """
-    Train models on the provided training dataframe with hardware acceleration.
+    Train models on the provided training dataframe with hardware acceleration and MLflow tracking.
     
     Parameters:
     -----------
@@ -494,6 +506,10 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
         Whether to use GPU acceleration (if available)
     n_jobs : int
         Number of CPU cores to use (-1 = all available cores)
+    use_mlflow : bool
+        Whether to use MLflow for experiment tracking
+    mlflow_tracking_uri : str
+        MLflow tracking server URI (default: http://localhost:5000)
     
     Returns:
     --------
@@ -539,6 +555,49 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
         print("SMOTE requested but not available. Install with: pip install imbalanced-learn")
         print("Continuing without SMOTE...\n")
 
+    # Initialize MLflow tracking if enabled
+    mlflow_run = None
+    if use_mlflow and MLFLOW_AVAILABLE:
+        try:
+            mlflow.set_tracking_uri(mlflow_tracking_uri)
+            
+            # Set experiment name
+            experiment_name = "ml_predict_15/classification/crypto_price_prediction"
+            mlflow.set_experiment(experiment_name)
+            
+            # Start MLflow run
+            run_name = f"training_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            mlflow_run = mlflow.start_run(run_name=run_name)
+            
+            # Log parameters
+            mlflow.log_param("target_bars", target_bars)
+            mlflow.log_param("target_pct", target_pct)
+            mlflow.log_param("use_smote", use_smote)
+            mlflow.log_param("use_gpu", use_gpu)
+            mlflow.log_param("n_jobs", n_jobs)
+            mlflow.log_param("dataset_shape", f"{X.shape[0]}x{X.shape[1]}")
+            mlflow.log_param("train_size", X_train.shape[0])
+            mlflow.log_param("val_size", X_val.shape[0])
+            mlflow.log_param("class_imbalance_ratio", f"{imbalance_ratio:.2f}")
+            mlflow.log_param("smote_applied", use_smote and SMOTE_AVAILABLE and imbalance_ratio > 1.5)
+            
+            print(f"\n{'='*80}")
+            print(f"MLFLOW TRACKING ENABLED")
+            print(f"{'='*80}")
+            print(f"Tracking URI: {mlflow_tracking_uri}")
+            print(f"Experiment: {experiment_name}")
+            print(f"Run: {run_name}")
+            print(f"Run ID: {mlflow_run.info.run_id}")
+            print(f"{'='*80}\n")
+        except Exception as e:
+            print(f"Warning: MLflow tracking failed to initialize: {e}")
+            print("Continuing without MLflow tracking...\n")
+            use_mlflow = False
+    elif use_mlflow and not MLFLOW_AVAILABLE:
+        print("MLflow requested but not available. Install with: pip install mlflow")
+        print("Continuing without MLflow tracking...\n")
+        use_mlflow = False
+    
     # Get model configurations with hardware acceleration
     models = get_model_configs(use_gpu=use_gpu, n_jobs=n_jobs)
     
@@ -587,6 +646,19 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
             
             results[model_name] = result
             total_training_time += result['training_time']
+            
+            # Log to MLflow if enabled
+            if use_mlflow and MLFLOW_AVAILABLE:
+                try:
+                    # Log model-specific metrics
+                    mlflow.log_metric(f"{model_name}_accuracy", result['accuracy'])
+                    mlflow.log_metric(f"{model_name}_f1_score", result['f1_score'])
+                    mlflow.log_metric(f"{model_name}_precision", result['precision'])
+                    mlflow.log_metric(f"{model_name}_recall", result['recall'])
+                    mlflow.log_metric(f"{model_name}_roc_auc", result['roc_auc'])
+                    mlflow.log_metric(f"{model_name}_training_time", result['training_time'])
+                except Exception as e:
+                    print(f"Warning: Failed to log metrics for {model_name} to MLflow: {e}")
             
             # Track best model
             if result['accuracy'] > best_score:
@@ -716,6 +788,59 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
         print(f"Training plot copied to: {dst_plot}")
     
     print(f"{'='*80}\n")
+    
+    # Log to MLflow - best model and artifacts
+    if use_mlflow and MLFLOW_AVAILABLE:
+        try:
+            # Log best model metrics
+            mlflow.log_metric("best_accuracy", best_score)
+            mlflow.log_metric("best_f1_score", results[best_model_name]['f1'])
+            mlflow.log_metric("best_precision", results[best_model_name]['precision'])
+            mlflow.log_metric("best_recall", results[best_model_name]['recall'])
+            mlflow.log_metric("best_roc_auc", results[best_model_name]['roc_auc'])
+            mlflow.log_metric("total_training_time", total_training_time)
+            mlflow.log_metric("avg_training_time", total_training_time/len(enabled_models))
+            
+            # Log best model name as parameter
+            mlflow.log_param("best_model_name", best_model_name)
+            mlflow.log_param("num_models_trained", len(enabled_models))
+            
+            # Log the best model to MLflow
+            try:
+                mlflow.sklearn.log_model(
+                    sk_model=best_model,
+                    artifact_path="best_model",
+                    registered_model_name=f"ml_predict_15_{best_model_name}"
+                )
+                print(f"✓ Best model logged to MLflow: {best_model_name}")
+            except Exception as e:
+                print(f"Warning: Failed to log best model to MLflow: {e}")
+            
+            # Log artifacts (CSV, config, plot)
+            try:
+                mlflow.log_artifact(csv_path, artifact_path="results")
+                mlflow.log_artifact(config_path, artifact_path="config")
+                if os.path.exists(dst_plot):
+                    mlflow.log_artifact(dst_plot, artifact_path="plots")
+                print(f"✓ Artifacts logged to MLflow")
+            except Exception as e:
+                print(f"Warning: Failed to log artifacts to MLflow: {e}")
+            
+            # End MLflow run
+            mlflow.end_run()
+            
+            print(f"\n{'='*80}")
+            print(f"MLFLOW TRACKING COMPLETE")
+            print(f"{'='*80}")
+            print(f"View results at: {mlflow_tracking_uri}")
+            print(f"Run ID: {mlflow_run.info.run_id}")
+            print(f"{'='*80}\n")
+        except Exception as e:
+            print(f"Warning: MLflow logging failed: {e}")
+            try:
+                mlflow.end_run()
+            except:
+                pass
 
     return models, scaler, results, best_model_name
 

@@ -72,3 +72,4 @@ var/
 venv.bak/
 venv/
 wheels/
+*.db

@@ -16,6 +16,8 @@ class FeaturesGenerator:
     def add_features(self, df):
         self.add_sma(df)
         self.add_rsi(df)
+        self.add_stochastic(df)
+        self.add_bollinger(df)
         return df
 
     def add_sma(self, df, window = 10):
@@ -32,9 +34,52 @@ class FeaturesGenerator:
         return df
 
     def add_rsi(self, df, min = 30, max = 70):
-        df['RSI'] = ta.RSI(df['Close'], length=14)
+        # Calculate RSI using ta library
+        rsi_indicator = ta.momentum.RSIIndicator(close=df['Close'], window=14)
+        df['RSI'] = rsi_indicator.rsi()
+        
+        # RSI crossover signals
         df['RSI_cross_min'] = (df['RSI'].shift(1) < min) & (df['RSI'] > min)
-        df['RSI_cross_max'] = (df['RSI'].shift(1) > max) & (df['RSI'] < max)
+        df['RSI_cross_min'] = df['RSI_cross_min'].astype(int)
+        #df['RSI_cross_max'] = (df['RSI'].shift(1) > max) & (df['RSI'] < max)
+        #df['RSI_cross_max'] = df['RSI_cross_max'].astype(int)
+        
+        # DROP RSI column
+        df.drop(['RSI'], axis=1, inplace=True)
+        return df
+
+    def add_stochastic(self, df, min = 20, max = 80):
+        # Calculate Stochastic Oscillator using ta library
+        stoch_indicator = ta.momentum.StochasticOscillator(high=df['High'], low=df['Low'], close=df['Close'], window=14, smooth_window=3)
+        df['STOCH_K'] = stoch_indicator.stoch()  # %K line
+        df['STOCH_D'] = stoch_indicator.stoch_signal()  # %D line (signal)
+        
+        # STOCH crossover signals
+        df['STOCH_cross_min'] = (df['STOCH_K'].shift(1) < min) & (df['STOCH_K'] > min)
+        df['STOCH_cross_min'] = df['STOCH_cross_min'].astype(int)
+        #df['STOCH_cross_max'] = (df['STOCH_K'].shift(1) > max) & (df['STOCH_K'] < max)
+        #df['STOCH_cross_max'] = df['STOCH_cross_max'].astype(int)
+        
+        # DROP STOCH columns
+        df.drop(['STOCH_K', 'STOCH_D'], axis=1, inplace=True)
+        return df
+
+    def add_bollinger(self, df, window = 14):
+        bollinger_indicator = ta.volatility.BollingerBands(close=df['Close'], window=window)
+        df['BOLLINGER_High'] = bollinger_indicator.bollinger_hband()
+        df['BOLLINGER_Low'] = bollinger_indicator.bollinger_lband()
+        df['BOLLINGER_Middle'] = bollinger_indicator.bollinger_mavg()
+        
+        # BOLLINGER crossover signals
+        #df['BOLLINGER_cross_min'] = (df['BOLLINGER_High'].shift(1) < df['Close']) & (df['BOLLINGER_High'] > df['Close'])
+        #df['BOLLINGER_cross_min'] = df['BOLLINGER_cross_min'].astype(int)
+        df['BOLLINGER_cross_mid'] = (df['Close'] < df['BOLLINGER_Low'].shift(1)) & (df['Close'] > df['BOLLINGER_Low'])
+        df['BOLLINGER_cross_mid'] = df['BOLLINGER_cross_mid'].astype(int)
+        #df['BOLLINGER_cross_max'] = (df['Close'] > df['BOLLINGER_High'].shift(1)) & (df['Close'] < df['BOLLINGER_High'])
+        #df['BOLLINGER_cross_max'] = df['BOLLINGER_cross_max'].astype(int)
+
+        # DROP BOLLINGER columns
+        df.drop(['BOLLINGER_High', 'BOLLINGER_Low', 'BOLLINGER_Middle'], axis=1, inplace=True)
         return df
 
     def add_target(self, df, N=45, M=3.0):
