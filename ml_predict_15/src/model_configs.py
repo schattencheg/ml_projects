@@ -277,41 +277,44 @@ def add_neural_network_models(models, input_shape, sequence_length=60):
         return models
     
     # 11. LSTM
-    lstm_model = create_lstm_model(input_shape)
     models['lstm'] = (
         KerasClassifierWrapper(
-            build_fn=lambda: create_lstm_model(input_shape),
+            model_builder=create_lstm_model,
+            input_shape=input_shape,
+            sequence_length=sequence_length,
             epochs=50,
             batch_size=32,
             verbose=0
         ),
-        {},
+        {'sequence_length': sequence_length},
         MODEL_ENABLED_CONFIG.get('lstm', True)
     )
     
     # 12. CNN
-    cnn_model = create_cnn_model(input_shape)
     models['cnn'] = (
         KerasClassifierWrapper(
-            build_fn=lambda: create_cnn_model(input_shape),
+            model_builder=create_cnn_model,
+            input_shape=input_shape,
+            sequence_length=sequence_length,
             epochs=50,
             batch_size=32,
             verbose=0
         ),
-        {},
+        {'sequence_length': sequence_length},
         MODEL_ENABLED_CONFIG.get('cnn', True)
     )
     
     # 13. Hybrid LSTM-CNN
-    hybrid_model = create_hybrid_lstm_cnn_model(input_shape)
     models['hybrid_lstm_cnn'] = (
         KerasClassifierWrapper(
-            build_fn=lambda: create_hybrid_lstm_cnn_model(input_shape),
+            model_builder=create_hybrid_lstm_cnn_model,
+            input_shape=input_shape,
+            sequence_length=sequence_length,
             epochs=50,
             batch_size=32,
             verbose=0
         ),
-        {},
+        {'sequence_length': sequence_length},
         MODEL_ENABLED_CONFIG.get('hybrid_lstm_cnn', True)
     )
     

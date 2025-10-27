@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from src.FeaturesGenerator import FeaturesGenerator
 
 
-def prepare_data(df_raw: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0):
+def prepare_data(df_raw: pd.DataFrame, target_bars: int = 15, target_pct: float = 3.0):
     """
     Prepare raw OHLCV data by adding features, target, and returns.
     

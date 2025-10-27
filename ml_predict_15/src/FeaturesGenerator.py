@@ -14,10 +14,12 @@ class FeaturesGenerator:
         return df
 
     def add_features(self, df):
-        self.add_sma(df)
-        self.add_rsi(df)
-        self.add_stochastic(df)
-        self.add_bollinger(df)
+        df = self.add_sma(df)
+        df = self.add_rsi(df)
+        df = self.add_stochastic(df)
+        df = self.add_bollinger(df)
+        df = self.add_float(df)
+        df = self.clear_data(df)
         return df
 
     def add_sma(self, df, window = 10):
@@ -80,6 +82,23 @@ class FeaturesGenerator:
 
         # DROP BOLLINGER columns
         df.drop(['BOLLINGER_High', 'BOLLINGER_Low', 'BOLLINGER_Middle'], axis=1, inplace=True)
+        return df
+
+    def add_float(self, df):
+        df['Return_15'] = np.log(df['Close'] / df['Close'].shift(15))
+        df['Return_15'] = df['Return_15'].replace([np.inf, -np.inf], np.nan).fillna(0).round().astype(int)
+        df['Return_1'] = np.log(df['Close'] / df['Close'].shift(1))
+        df['Return_1'] = df['Return_1'].replace([np.inf, -np.inf], np.nan).fillna(0).round().astype(int)
+        df['RSI'] = ta.momentum.RSIIndicator(close=df['Close'], window=14).rsi()
+        df['RSI'] = df['RSI'].replace([np.inf, -np.inf], np.nan).fillna(0).round().astype(int)
+        df['STOCH_K'] = ta.momentum.StochasticOscillator(high=df['High'], low=df['Low'], close=df['Close'], window=14, smooth_window=3).stoch()
+        df['STOCH_K'] = df['STOCH_K'].replace([np.inf, -np.inf], np.nan).fillna(0).round().astype(int)
+        df['STOCH_D'] = ta.momentum.StochasticOscillator(high=df['High'], low=df['Low'], close=df['Close'], window=14, smooth_window=3).stoch_signal()
+        df['STOCH_D'] = df['STOCH_D'].replace([np.inf, -np.inf], np.nan).fillna(0).round().astype(int)
+        return df
+
+    def clear_data(self, df):
+        df = df.dropna()
         return df
 
     def add_target(self, df, N=45, M=3.0):

@@ -38,9 +38,9 @@ def main():
     #       Run 'python diagnose_data.py' to see full analysis
     models, scaler, train_results, best_model_name = train(
         df_train, 
-        target_bars=45, 
+        target_bars=15, 
         target_pct=3.0,  # Optimal for this dataset (11.7% positive samples)
-        use_smote=True,   # Handle remaining imbalance (7.5:1 ratio)
+        use_smote=False,   # Handle remaining imbalance (7.5:1 ratio)
         use_gpu=False,
         n_jobs=-1
     )

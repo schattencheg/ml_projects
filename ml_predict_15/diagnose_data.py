@@ -8,7 +8,7 @@ import pandas as pd
 from src.data_preparation import prepare_data
 
 # Load your training data
-PATH_TRAIN = "data/btc_2022.csv"
+PATH_TRAIN = "data/hour/btc.csv"
 df_train = pd.read_csv(PATH_TRAIN)
 
 print("="*80)

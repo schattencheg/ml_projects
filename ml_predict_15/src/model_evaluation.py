@@ -58,6 +58,62 @@ def find_optimal_threshold(model, X_val_scaled, y_val, metric='f1'):
     return best_threshold, best_score
 
 
+def print_confusion_matrix_summary(results: dict):
+    """
+    Print detailed confusion matrix statistics for all models.
+    
+    Parameters:
+    -----------
+    results : dict
+        Dictionary with validation metrics for each model (must include confusion_matrix)
+    """
+    print("\n" + "="*120)
+    print("CONFUSION MATRIX SUMMARY (Validation Set)")
+    print("="*120)
+    
+    # Create DataFrame for better formatting
+    summary_data = []
+    for model_name, metrics in results.items():
+        if 'confusion_matrix' in metrics:
+            cm = metrics['confusion_matrix']
+            tn, fp, fn, tp = cm.ravel()
+            
+            total_samples = tn + fp + fn + tp
+            predicted_positive = tp + fp
+            predicted_negative = tn + fn
+            actual_positive = tp + fn
+            actual_negative = tn + fp
+            
+            summary_data.append({
+                'Model': model_name.replace('_', ' ').title(),
+                'Total': total_samples,
+                'Pred 1': predicted_positive,
+                'Pred 0': predicted_negative,
+                'True Pos': tp,
+                'True Neg': tn,
+                'False Pos': fp,
+                'False Neg': fn,
+                'Accuracy': f"{metrics['accuracy']:.4f}",
+                'F1': f"{metrics['f1']:.4f}"
+            })
+    
+    if summary_data:
+        df_summary = pd.DataFrame(summary_data)
+        
+        # Sort by F1 Score
+        df_summary = df_summary.sort_values('F1', ascending=False)
+        
+        print(df_summary.to_string(index=False))
+        print("="*120)
+        print("Legend: Pred 1 = Predicted Positive (Increase), Pred 0 = Predicted Negative (No Increase)")
+        print("        True Pos = Correctly predicted increase, True Neg = Correctly predicted no increase")
+        print("        False Pos = Incorrectly predicted increase, False Neg = Missed increase")
+        print("="*120 + "\n")
+    else:
+        print("No confusion matrix data available.")
+        print("="*120 + "\n")
+
+
 def print_training_results_summary(results: dict):
     """
     Print summary of training/validation results for all models.

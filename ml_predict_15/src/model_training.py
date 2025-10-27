@@ -11,7 +11,7 @@ import time
 import shutil
 from datetime import datetime
 from tqdm import tqdm
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
 
 # Import from new modular structure
@@ -20,10 +20,12 @@ from src.model_configs import (
     get_model_configs, 
     add_neural_network_models,
     HARDWARE_INFO,
-    MODEL_ENABLED_CONFIG
+    MODEL_ENABLED_CONFIG,
+    TENSORFLOW_AVAILABLE
 )
 from src.model_evaluation import (
     find_optimal_threshold,
+    print_confusion_matrix_summary,
     print_training_results_summary,
     print_test_results_summary,
     plot_training_comparison,
@@ -158,6 +160,9 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
     print(f"\nClassification Report:")
     print(classification_report(y_val, y_pred, target_names=['No Increase', 'Increase'], zero_division=np.nan))
     
+    # Calculate confusion matrix
+    cm = confusion_matrix(y_val, y_pred)
+    
     return {
         'accuracy': accuracy,
         'f1': f1,
@@ -166,7 +171,8 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
         'roc_auc': roc_auc,
         'y_pred': y_pred,
         'model': model,
-        'training_time': training_time
+        'training_time': training_time,
+        'confusion_matrix': cm
     }
 
 
@@ -219,7 +225,7 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
 
     # Split data into train/validation sets
     X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+        X, y, test_size=0.2, random_state=42, shuffle=False
     )
     
     # Apply SMOTE if available and requested
@@ -366,6 +372,7 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
     print(f"{'='*80}")
     
     # Print training results summary and create visualizations
+    print_confusion_matrix_summary(results)
     print_training_results_summary(results)
     plot_training_comparison(results)
 
@@ -784,6 +791,7 @@ def test(models: dict, scaler, df_test: pd.DataFrame, target_bars: int = 45, tar
         }
     
     # Print summary and create visualizations
+    print_confusion_matrix_summary(results_test)
     print_test_results_summary(results_test)
     plot_model_comparison(results_test)
     
