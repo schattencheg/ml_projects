@@ -35,7 +35,7 @@ def prepare_data(df_raw: pd.DataFrame, target_bars: int = 15, target_pct: float 
     
     # Create target: 1 if price increases by target_pct% within target_bars, else 0
     df[f'pct_change_{target_bars}'] = (
-        df['Close'].shift(-target_bars) / df['Close'] - 1
+        df['close'].shift(-target_bars) / df['close'] - 1
     ) * 100
     
     target_up = (df[f'pct_change_{target_bars}'] >= target_pct)
@@ -52,7 +52,7 @@ def prepare_data(df_raw: pd.DataFrame, target_bars: int = 15, target_pct: float 
     y = df['target']
     
     # Drop non-feature columns (keep only numeric features)
-    non_feature_cols = ['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume']
+    non_feature_cols = ['Timestamp', 'open', 'high', 'low', 'close', 'Volume']
     X = X.drop(columns=[col for col in non_feature_cols if col in X.columns])
     
     return X, y

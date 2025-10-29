@@ -7,13 +7,14 @@ class FeaturesGenerator:
         pass
 
     def returnificate(self, df):
-        df['ret_Open'] = np.log(df['Open'] / df['Open'].shift(1))
-        df['ret_High'] = np.log(df['High'] / df['High'].shift(1))
-        df['ret_Low'] = np.log(df['Low'] / df['Low'].shift(1))
-        df['ret_Close'] = np.log(df['Close'] / df['Close'].shift(1))
+        df['ret_open'] = np.log(df['open'] / df['open'].shift(1))
+        df['ret_high'] = np.log(df['high'] / df['high'].shift(1))
+        df['ret_low'] = np.log(df['low'] / df['low'].shift(1))
+        df['ret_close'] = np.log(df['close'] / df['close'].shift(1))
         return df
 
     def add_features(self, df):
+        df.columns = df.columns.str.lower()
         df = self.add_sma(df)
         df = self.add_rsi(df)
         df = self.add_stochastic(df)
@@ -24,12 +25,12 @@ class FeaturesGenerator:
 
     def add_sma(self, df, window = 10):
         # SMA small moving average
-        df['SMA_10'] = df['Close'].rolling(window=window).mean()
-        df['SMA_20'] = df['Close'].rolling(window=window*2).mean()
+        df['SMA_10'] = df['close'].rolling(window=window).mean()
+        df['SMA_20'] = df['close'].rolling(window=window*2).mean()
         
         # SMA_cross_10: Close crossing SMA_10 (upward: +1, downward: -1, no cross: 0)
-        cross_up_10 = (df['Close'] > df['SMA_10']) & (df['Close'].shift(1) <= df['SMA_10'].shift(1))
-        cross_down_10 = (df['Close'] < df['SMA_10']) & (df['Close'].shift(1) >= df['SMA_10'].shift(1))
+        cross_up_10 = (df['close'] > df['SMA_10']) & (df['close'].shift(1) <= df['SMA_10'].shift(1))
+        cross_down_10 = (df['close'] < df['SMA_10']) & (df['close'].shift(1) >= df['SMA_10'].shift(1))
         df['SMA_cross_10'] = 0
         df.loc[cross_up_10, 'SMA_cross_10'] = 1
         df.loc[cross_down_10, 'SMA_cross_10'] = -1
@@ -47,7 +48,7 @@ class FeaturesGenerator:
 
     def add_rsi(self, df, min = 30, max = 70):
         # Calculate RSI using ta library
-        rsi_indicator = ta.momentum.RSIIndicator(close=df['Close'], window=14)
+        rsi_indicator = ta.momentum.RSIIndicator(close=df['close'], window=14)
         df['RSI'] = rsi_indicator.rsi()
         
         # RSI_cross_min: RSI crossing oversold threshold (upward from oversold: +1, downward to oversold: -1, no cross: 0)
@@ -63,7 +64,7 @@ class FeaturesGenerator:
 
     def add_stochastic(self, df, min = 20, max = 80):
         # Calculate Stochastic Oscillator using ta library
-        stoch_indicator = ta.momentum.StochasticOscillator(high=df['High'], low=df['Low'], close=df['Close'], window=14, smooth_window=3)
+        stoch_indicator = ta.momentum.StochasticOscillator(high=df['high'], low=df['low'], close=df['close'], window=14, smooth_window=3)
         df['STOCH_K'] = stoch_indicator.stoch()  # %K line
         df['STOCH_D'] = stoch_indicator.stoch_signal()  # %D line (signal)
         
@@ -79,14 +80,14 @@ class FeaturesGenerator:
         return df
 
     def add_bollinger(self, df, window = 14):
-        bollinger_indicator = ta.volatility.BollingerBands(close=df['Close'], window=window)
+        bollinger_indicator = ta.volatility.BollingerBands(close=df['close'], window=window)
         df['BOLLINGER_High'] = bollinger_indicator.bollinger_hband()
         df['BOLLINGER_Low'] = bollinger_indicator.bollinger_lband()
         df['BOLLINGER_Middle'] = bollinger_indicator.bollinger_mavg()
         
         # BOLLINGER_cross_mid: Close crossing middle band (upward: +1, downward: -1, no cross: 0)
-        cross_up_mid = (df['Close'] > df['BOLLINGER_Middle']) & (df['Close'].shift(1) <= df['BOLLINGER_Middle'].shift(1))
-        cross_down_mid = (df['Close'] < df['BOLLINGER_Middle']) & (df['Close'].shift(1) >= df['BOLLINGER_Middle'].shift(1))
+        cross_up_mid = (df['close'] > df['BOLLINGER_Middle']) & (df['close'].shift(1) <= df['BOLLINGER_Middle'].shift(1))
+        cross_down_mid = (df['close'] < df['BOLLINGER_Middle']) & (df['close'].shift(1) >= df['BOLLINGER_Middle'].shift(1))
         df['BOLLINGER_cross_mid'] = 0
         df.loc[cross_up_mid, 'BOLLINGER_cross_mid'] = 1
         df.loc[cross_down_mid, 'BOLLINGER_cross_mid'] = -1
@@ -97,26 +98,26 @@ class FeaturesGenerator:
 
     def add_float(self, df):
         # Price returns (log returns)
-        df['Return_15'] = np.log(df['Close'] / df['Close'].shift(15))
+        df['Return_15'] = np.log(df['close'] / df['close'].shift(15))
         df['Return_15'] = df['Return_15'].replace([np.inf, -np.inf], np.nan).fillna(0)
         
-        df['Return_1'] = np.log(df['Close'] / df['Close'].shift(1))
+        df['Return_1'] = np.log(df['close'] / df['close'].shift(1))
         df['Return_1'] = df['Return_1'].replace([np.inf, -np.inf], np.nan).fillna(0)
         
         # RSI log return - log of ratio from previous period
-        rsi_temp = ta.momentum.RSIIndicator(close=df['Close'], window=14).rsi()
+        rsi_temp = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
         # Add small constant to avoid log(0) and ensure positive values
         df['RSI'] = np.log((rsi_temp + 1) / (rsi_temp.shift(1) + 1))
         df['RSI'] = df['RSI'].replace([np.inf, -np.inf], np.nan).fillna(0)
         
         # Stochastic K log return - log of ratio from previous period
-        stoch_k_temp = ta.momentum.StochasticOscillator(high=df['High'], low=df['Low'], close=df['Close'], window=14, smooth_window=3).stoch()
+        stoch_k_temp = ta.momentum.StochasticOscillator(high=df['high'], low=df['low'], close=df['close'], window=14, smooth_window=3).stoch()
         # Add small constant to avoid log(0) and ensure positive values
         df['STOCH_K'] = np.log((stoch_k_temp + 1) / (stoch_k_temp.shift(1) + 1))
         df['STOCH_K'] = df['STOCH_K'].replace([np.inf, -np.inf], np.nan).fillna(0)
         
         # Stochastic D log return - log of ratio from previous period
-        stoch_d_temp = ta.momentum.StochasticOscillator(high=df['High'], low=df['Low'], close=df['Close'], window=14, smooth_window=3).stoch_signal()
+        stoch_d_temp = ta.momentum.StochasticOscillator(high=df['high'], low=df['low'], close=df['close'], window=14, smooth_window=3).stoch_signal()
         # Add small constant to avoid log(0) and ensure positive values
         df['STOCH_D'] = np.log((stoch_d_temp + 1) / (stoch_d_temp.shift(1) + 1))
         df['STOCH_D'] = df['STOCH_D'].replace([np.inf, -np.inf], np.nan).fillna(0)

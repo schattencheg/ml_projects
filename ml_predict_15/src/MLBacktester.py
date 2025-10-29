@@ -282,7 +282,7 @@ class MLBacktester:
         model,
         scaler,
         X_columns: List[str],
-        close_column: str = 'Close',
+        close_column: str = 'close',
         timestamp_column: str = 'Timestamp'
     ) -> Dict:
         """
@@ -386,7 +386,7 @@ class MLBacktester:
         
         return results
     
-    def calculate_metrics(self, df: pd.DataFrame, close_column: str = 'Close') -> Dict:
+    def calculate_metrics(self, df: pd.DataFrame, close_column: str = 'close') -> Dict:
         """
         Calculate performance metrics.
         
@@ -548,7 +548,7 @@ class MLBacktester:
             print(trades_df[['entry_time', 'exit_time', 'entry_price', 'exit_price', 
                            'net_pnl', 'pnl_pct', 'exit_reason']].tail(10).to_string(index=False))
     
-    def plot_results(self, results: Dict, df: pd.DataFrame, close_column: str = 'Close', 
+    def plot_results(self, results: Dict, df: pd.DataFrame, close_column: str = 'close', 
                     timestamp_column: str = 'Timestamp', save_path: Optional[str] = None):
         """
         Plot backtest results.

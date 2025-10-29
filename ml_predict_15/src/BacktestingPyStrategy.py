@@ -179,7 +179,7 @@ class MLBacktesterPy:
         model,
         scaler,
         X_columns: List[str],
-        close_column: str = 'Close',
+        close_column: str = 'close',
         timestamp_column: str = 'Timestamp'
     ) -> pd.DataFrame:
         """
@@ -209,7 +209,7 @@ class MLBacktesterPy:
         df_prepared = df.copy()
         
         # Ensure we have the required columns
-        required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+        required_cols = ['open', 'high', 'low', 'close', 'Volume']
         for col in required_cols:
             if col not in df_prepared.columns:
                 raise ValueError(f"Missing required column: {col}")
