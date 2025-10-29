@@ -30,6 +30,7 @@ def prepare_data(df_raw: pd.DataFrame, target_bars: int = 15, target_pct: float 
         Target labels
     """
     # Generate features
+    df_raw.columns = df_raw.columns.str.lower()
     fg = FeaturesGenerator()
     df = fg.add_features(df_raw)
     
