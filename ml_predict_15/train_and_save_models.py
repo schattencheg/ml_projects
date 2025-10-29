@@ -28,7 +28,9 @@ def main():
     print("\n[2/2] Training models...")
     print("  This may take a few minutes...\n")
     
-    models, scaler, train_results, best_model_name = train(df_train)
+    # Prepare data
+    X, y = prepare_data(df_train, target_bars, target_pct)
+    models, scaler, train_results, best_model_name = train(X, y)
     
     # Summary
     print("\n" + "="*80)

@@ -129,13 +129,15 @@ def get_model_configs(use_gpu=False, n_jobs=-1):
     
     models = {}
     
-    # 1. Logistic Regression
+    # 1. Logistic Regression (supports multi-class with 'ovr' or 'multinomial')
     models['logistic_regression'] = (
         LogisticRegression(
             max_iter=1000, 
             class_weight='balanced',
             n_jobs=n_jobs,
-            random_state=42
+            random_state=42,
+            multi_class='ovr',  # One-vs-Rest for multi-class
+            solver='lbfgs'  # Supports multi-class
         ),
         {'C': [0.001, 0.01, 0.1, 1, 10]},
         MODEL_ENABLED_CONFIG.get('logistic_regression', True)

@@ -6,8 +6,17 @@ All helper functions have been moved to modular files in the src/ directory.
 """
 
 import pandas as pd
+import sys
+import importlib
+
+# Force reload modules to get latest changes
+if 'src.FeaturesGenerator' in sys.modules:
+    importlib.reload(sys.modules['src.FeaturesGenerator'])
+
 from src.model_training import train, test
 from src.visualization import print_model_summary
+from src.data_preparation import prepare_data
+from src.FeaturesGenerator import FeaturesGenerator
 
 
 # Data paths
@@ -36,8 +45,13 @@ def main():
     #       target_pct=1.0% → 4.1% positive samples (too few)
     #       target_pct=3.0% → 0.4% positive samples (WAY too few, F1≈0)
     #       Run 'python diagnose_data.py' to see full analysis
-    models, scaler, train_results, best_model_name = train(
-        df_train, 
+
+    # Prepare data
+    X, y = prepare_data(df_train, target_bars=15, target_pct=1.0)
+
+    models, scaler, train_results, best_model_name, label_encoder = train(
+        X, 
+        y,
         target_bars=15, 
         target_pct=3.0,  # Optimal for this dataset (11.7% positive samples)
         use_smote=False,   # Handle remaining imbalance (7.5:1 ratio)
@@ -52,7 +66,12 @@ def main():
     print("\n" + "="*80)
     print("TESTING MODELS")
     print("="*80)
-    test_metrics = test(models, scaler, df_test)
+    
+    # Prepare test data
+    X_test, y_test = prepare_data(df_test, target_bars=15, target_pct=1.0)
+    
+    # Test models
+    test_metrics = test(models, scaler, X_test, y_test, label_encoder)
     
     # Print test summary
     print("\n" + "="*80)

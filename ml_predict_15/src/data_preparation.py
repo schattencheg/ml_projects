@@ -38,7 +38,11 @@ def prepare_data(df_raw: pd.DataFrame, target_bars: int = 15, target_pct: float 
         df['Close'].shift(-target_bars) / df['Close'] - 1
     ) * 100
     
-    df['target'] = (df[f'pct_change_{target_bars}'] >= target_pct).astype(int)
+    target_up = (df[f'pct_change_{target_bars}'] >= target_pct)
+    target_down = (df[f'pct_change_{target_bars}'] <= -target_pct)
+    df['target'] = 0
+    df.loc[target_up, 'target'] = 1
+    df.loc[target_down, 'target'] = -1
     
     # Drop rows with NaN (from indicators and forward-looking target)
     df = df.dropna()
@@ -92,6 +96,8 @@ def fit_scaler_minmax(X_train: pd.DataFrame):
         Scaled training features
     """
     scaler = MinMaxScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
+    cols_float =  X_train.select_dtypes(include=['float64']).columns
+    X_train_scaled = X_train.copy()
+    X_train_scaled[cols_float] = scaler.fit_transform(X_train[cols_float])
     
     return scaler, X_train_scaled

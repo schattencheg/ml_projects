@@ -13,6 +13,7 @@ from datetime import datetime
 from tqdm import tqdm
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
 
 # Import from new modular structure
 from src.data_preparation import fit_scaler_minmax, prepare_data
@@ -100,15 +101,16 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
     prediction_time = time.time() - start_time
     print(f"✓ Prediction completed in {prediction_time:.2f} seconds")
     
-    # Calculate metrics with default threshold (0.5)
+    # Calculate metrics (use weighted average for multi-class)
     accuracy = accuracy_score(y_val, y_pred)
-    f1 = f1_score(y_val, y_pred)
-    precision = precision_score(y_val, y_pred)
-    recall = recall_score(y_val, y_pred)
+    f1 = f1_score(y_val, y_pred, average='weighted', zero_division=0)
+    precision = precision_score(y_val, y_pred, average='weighted', zero_division=0)
+    recall = recall_score(y_val, y_pred, average='weighted', zero_division=0)
     
-    # Try to optimize threshold for better F1 score
-    optimal_threshold = 0.5
-    if optimize_threshold and hasattr(model, 'predict_proba'):
+    # Threshold optimization only works for binary classification
+    # Skip for multi-class (3 classes: -1, 0, 1)
+    num_classes = len(np.unique(y_val))
+    if num_classes == 2 and optimize_threshold and hasattr(model, 'predict_proba'):
         optimal_threshold, optimal_f1 = find_optimal_threshold(model, X_val_scaled, y_val, metric='f1')
         
         if optimal_f1 > f1:
@@ -118,9 +120,9 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
             
             # Recalculate metrics with optimized threshold
             accuracy_opt = accuracy_score(y_val, y_pred_optimized)
-            f1_opt = f1_score(y_val, y_pred_optimized)
-            precision_opt = precision_score(y_val, y_pred_optimized)
-            recall_opt = recall_score(y_val, y_pred_optimized)
+            f1_opt = f1_score(y_val, y_pred_optimized, average='weighted', zero_division=0)
+            precision_opt = precision_score(y_val, y_pred_optimized, average='weighted', zero_division=0)
+            recall_opt = recall_score(y_val, y_pred_optimized, average='weighted', zero_division=0)
             
             print(f"\n  Threshold Optimization:")
             print(f"    Default threshold (0.5): F1={f1:.4f}, Recall={recall:.4f}")
@@ -133,17 +135,30 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
             f1 = f1_opt
             precision = precision_opt
             recall = recall_opt
+    elif num_classes > 2:
+        print(f"\n  Multi-class classification detected ({num_classes} classes)")
+        print(f"  Threshold optimization skipped (only for binary classification)")
     
-    # Calculate ROC AUC
+    # Calculate ROC AUC (handle multi-class)
     try:
+        num_classes = len(np.unique(y_val))
         if hasattr(model, 'predict_proba'):
-            y_pred_proba = model.predict_proba(X_val_scaled)[:, 1]
+            y_pred_proba = model.predict_proba(X_val_scaled)
+            if num_classes == 2:
+                # Binary classification: use probability of positive class
+                roc_auc = roc_auc_score(y_val, y_pred_proba[:, 1])
+            else:
+                # Multi-class: use one-vs-rest with weighted average
+                roc_auc = roc_auc_score(y_val, y_pred_proba, multi_class='ovr', average='weighted')
         elif hasattr(model, 'decision_function'):
             y_pred_proba = model.decision_function(X_val_scaled)
+            if num_classes == 2:
+                roc_auc = roc_auc_score(y_val, y_pred_proba)
+            else:
+                roc_auc = roc_auc_score(y_val, y_pred_proba, multi_class='ovr', average='weighted')
         else:
-            y_pred_proba = y_pred.astype(float)
-        
-        roc_auc = roc_auc_score(y_val, y_pred_proba)
+            # No probability estimates available
+            roc_auc = 0.0
     except Exception as e:
         print(f"  Warning: Could not calculate ROC AUC: {str(e)}")
         roc_auc = 0.0
@@ -156,9 +171,16 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
     Utils.print_color(f"  Recall:    {recall:.4f}", 'green')
     Utils.print_color(f"  ROC AUC:   {roc_auc:.4f}", 'green')
     
-    # Classification report
+    # Classification report (handle multi-class)
     print(f"\nClassification Report:")
-    print(classification_report(y_val, y_pred, target_names=['No Increase', 'Increase'], zero_division=np.nan))
+    num_classes = len(np.unique(y_val))
+    if num_classes == 3:
+        target_names = ['Short (-1)', 'Flat (0)', 'Long (1)']
+    elif num_classes == 2:
+        target_names = ['No Increase (0)', 'Increase (1)']
+    else:
+        target_names = None
+    print(classification_report(y_val, y_pred, target_names=target_names, zero_division=0))
     
     # Calculate confusion matrix
     cm = confusion_matrix(y_val, y_pred)
@@ -176,7 +198,7 @@ def train_and_evaluate_model(model, model_name, X_train_scaled, y_train, X_val_s
     }
 
 
-def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0, use_smote: bool = True, use_gpu: bool = False, n_jobs: int = -1, use_mlflow: bool = True, mlflow_tracking_uri: str = "http://localhost:5000"):
+def train(X: np.ndarray, y: np.ndarray, target_bars: int = 45, target_pct: float = 3.0, use_smote: bool = True, use_gpu: bool = False, n_jobs: int = -1, use_mlflow: bool = True, mlflow_tracking_uri: str = "http://localhost:5000"):
     """
     Train models on the provided training dataframe with hardware acceleration and MLflow tracking.
     
@@ -209,13 +231,21 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
         Training results with metrics
     best_model_name : str
         Name of the best performing model
+    label_encoder : LabelEncoder
+        Fitted label encoder for converting between original labels [-1, 0, 1] and encoded labels [0, 1, 2]
     """
-    # Prepare data
-    X, y = prepare_data(df_train, target_bars, target_pct)
 
     print(f"Dataset shape: {X.shape}")
-    print(f"Target distribution:\n{y.value_counts()}")
-    print(f"Target balance: {y.value_counts(normalize=True)}")
+    print(f"Target distribution:\n{y.value_counts().sort_index()}")
+    print(f"Target balance: {y.value_counts(normalize=True).sort_index()}")
+    
+    # Encode labels to ensure sklearn compatibility
+    # Convert [-1, 0, 1] to [0, 1, 2] for models that require consecutive integers
+    label_encoder = LabelEncoder()
+    y_encoded = label_encoder.fit_transform(y)
+    print(f"\nLabel encoding: {dict(zip(label_encoder.classes_, label_encoder.transform(label_encoder.classes_)))}")
+    print(f"Original classes: {sorted(y.unique())}")
+    print(f"Encoded classes: {sorted(pd.Series(y_encoded).unique())}")
     
     # Calculate class imbalance ratio
     class_counts = y.value_counts()
@@ -224,24 +254,43 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
     print()
 
     # Split data into train/validation sets
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=0.2, random_state=42, shuffle=False
-    )
+    # Use stratify to ensure all classes are represented in both sets
+    try:
+        X_train, X_val, y_train_encoded, y_val_encoded = train_test_split(
+            X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
+        )
+        print(f"\nAfter split:")
+        print(f"  Train classes (encoded): {sorted(pd.Series(y_train_encoded).unique())}")
+        print(f"  Train distribution: {pd.Series(y_train_encoded).value_counts().sort_index().to_dict()}")
+        print(f"  Val classes (encoded): {sorted(pd.Series(y_val_encoded).unique())}")
+        print(f"  Val distribution: {pd.Series(y_val_encoded).value_counts().sort_index().to_dict()}")
+    except ValueError as e:
+        # If stratification fails (e.g., too few samples per class), fall back to random split
+        print(f"Warning: Stratification failed ({e}). Using random split without stratification.")
+        X_train, X_val, y_train_encoded, y_val_encoded = train_test_split(
+            X, y_encoded, test_size=0.2, random_state=42
+        )
+        print(f"\nAfter split (no stratification):")
+        print(f"  Train classes (encoded): {sorted(pd.Series(y_train_encoded).unique())}")
+        print(f"  Val classes (encoded): {sorted(pd.Series(y_val_encoded).unique())}")
     
     # Apply SMOTE if available and requested
     if use_smote and SMOTE_AVAILABLE and imbalance_ratio > 1.5:
-        print("Applying SMOTE to balance training data...")
+        print("\nApplying SMOTE to balance training data...")
         smote = SMOTE(random_state=42, k_neighbors=5)
-        X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
+        X_train_resampled, y_train_encoded_resampled = smote.fit_resample(X_train, y_train_encoded)
         print(f"Original training size: {X_train.shape[0]}")
         print(f"Resampled training size: {X_train_resampled.shape[0]}")
-        print(f"New class distribution: {pd.Series(y_train_resampled).value_counts()}")
+        print(f"New class distribution: {pd.Series(y_train_encoded_resampled).value_counts().sort_index().to_dict()}")
+        print(f"Classes after SMOTE: {sorted(pd.Series(y_train_encoded_resampled).unique())}")
         print()
         X_train = X_train_resampled
-        y_train = y_train_resampled
+        y_train_encoded = y_train_encoded_resampled
     elif use_smote and not SMOTE_AVAILABLE:
         print("SMOTE requested but not available. Install with: pip install imbalanced-learn")
         print("Continuing without SMOTE...\n")
+    else:
+        print(f"\nSMOTE not applied (use_smote={use_smote}, imbalance_ratio={imbalance_ratio:.2f})")
 
     # Initialize MLflow tracking if enabled
     mlflow_run = None
@@ -297,7 +346,11 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
 
     # Fit scaler on training data
     scaler, X_train_scaled = fit_scaler_minmax(X_train)
-    X_val_scaled = scaler.transform(X_val)
+    
+    # Transform validation data
+    cols_float = X_val.select_dtypes(include=['float64']).columns
+    X_val_scaled = X_val.copy()
+    X_val_scaled[cols_float] = scaler.transform(X_val[cols_float])
 
     # Filter enabled models only
     enabled_models = {name: data for name, data in models.items() if len(data) >= 3 and data[2]}
@@ -327,9 +380,9 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
             model = model_data[0]
             pbar.set_description(f"Training {model_name}")
             
-            # Train and evaluate
+            # Train and evaluate (using encoded labels)
             result = train_and_evaluate_model(
-                model, model_name, X_train_scaled, y_train, X_val_scaled, y_val
+                model, model_name, X_train_scaled, y_train_encoded, X_val_scaled, y_val_encoded
             )
             
             results[model_name] = result
@@ -345,7 +398,7 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
                     else:
                         # Log model-specific metrics
                         mlflow.log_metric(f"{model_name}_accuracy", float(result['accuracy']))
-                        mlflow.log_metric(f"{model_name}_f1_score", float(result['f1_score']))
+                        mlflow.log_metric(f"{model_name}_f1", float(result['f1']))
                         mlflow.log_metric(f"{model_name}_precision", float(result['precision']))
                         mlflow.log_metric(f"{model_name}_recall", float(result['recall']))
                         mlflow.log_metric(f"{model_name}_roc_auc", float(result['roc_auc']))
@@ -538,7 +591,7 @@ def train(df_train: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0
             except:
                 pass
 
-    return enabled_models, scaler, results, best_model_name
+    return enabled_models, scaler, results, best_model_name, label_encoder
 
 
 def print_training_results_summary(results: dict):
@@ -702,7 +755,7 @@ def plot_training_comparison(results: dict, save_path: str = 'plots/model_compar
     plt.show()
 
 
-def test(models: dict, scaler, df_test: pd.DataFrame, target_bars: int = 45, target_pct: float = 3.0):
+def test(models: dict, scaler, X_test: np.ndarray, y_test: np.ndarray, label_encoder, target_bars: int = 45, target_pct: float = 3.0):
     """
     Test trained models on new data.
     
@@ -712,8 +765,12 @@ def test(models: dict, scaler, df_test: pd.DataFrame, target_bars: int = 45, tar
         Dictionary of trained models
     scaler : StandardScaler
         Fitted scaler from training
-    df_test : pd.DataFrame
-        Test dataframe with OHLCV data
+    X_test : np.ndarray
+        Test features
+    y_test : np.ndarray
+        Test labels
+    label_encoder : LabelEncoder
+        Fitted label encoder from training for converting labels
     target_bars : int
         Number of bars to look ahead for target (should match training)
     target_pct : float
@@ -724,17 +781,22 @@ def test(models: dict, scaler, df_test: pd.DataFrame, target_bars: int = 45, tar
     results_test : dict
         Dictionary with test metrics for each model
     """
-    # Prepare test data using the same pipeline as training
-    X_test, y_test = prepare_data(df_test, target_bars, target_pct)
+    
+    # Encode test labels using the same encoder from training
+    y_test_encoded = label_encoder.transform(y_test)
+    print(f"Test labels encoded: {sorted(y_test.unique())} -> {sorted(pd.Series(y_test_encoded).unique())}")
     
     # Scale using the fitted scaler from training (DO NOT refit!)
-    X_test_scaled = scaler.transform(X_test)
+    cols_float = X_test.select_dtypes(include=['float64']).columns
+    X_test_scaled = X_test.copy()
+    X_test_scaled[cols_float] = scaler.transform(X_test[cols_float])
 
     print(f"\n{'='*80}")
     print(f"TESTING ON HELD-OUT TEST DATA")
     print(f"{'='*80}")
     print(f"Test dataset shape: {X_test.shape}")
-    print(f"Test target distribution:\n{y_test.value_counts()}")
+    print(f"Test target distribution (original):\n{y_test.value_counts().sort_index()}")
+    print(f"Test target distribution (encoded):\n{pd.Series(y_test_encoded).value_counts().sort_index()}")
     print()
 
     results_test = {}
@@ -746,25 +808,35 @@ def test(models: dict, scaler, df_test: pd.DataFrame, target_bars: int = 45, tar
         
         model = model_data[0]
         
-        # Make predictions on test set
-        y_pred_test = model.predict(X_test_scaled)
+        # Make predictions on test set (returns encoded predictions)
+        y_pred_test_encoded = model.predict(X_test_scaled)
         
-        # Calculate metrics
-        accuracy = accuracy_score(y_test, y_pred_test)
-        f1 = f1_score(y_test, y_pred_test)
-        precision = precision_score(y_test, y_pred_test, zero_division=np.nan)
-        recall = recall_score(y_test, y_pred_test)
+        # Calculate metrics (use weighted average for multi-class)
+        accuracy = accuracy_score(y_test_encoded, y_pred_test_encoded)
+        f1 = f1_score(y_test_encoded, y_pred_test_encoded, average='weighted', zero_division=0)
+        precision = precision_score(y_test_encoded, y_pred_test_encoded, average='weighted', zero_division=0)
+        recall = recall_score(y_test_encoded, y_pred_test_encoded, average='weighted', zero_division=0)
         
-        # Calculate ROC AUC
+        # Calculate ROC AUC (handle multi-class)
         try:
+            num_classes = len(np.unique(y_test_encoded))
             if hasattr(model, 'predict_proba'):
-                y_pred_proba_test = model.predict_proba(X_test_scaled)[:, 1]
+                y_pred_proba_test = model.predict_proba(X_test_scaled)
+                if num_classes == 2:
+                    # Binary classification: use probability of positive class
+                    roc_auc = roc_auc_score(y_test_encoded, y_pred_proba_test[:, 1])
+                else:
+                    # Multi-class: use one-vs-rest with weighted average
+                    roc_auc = roc_auc_score(y_test_encoded, y_pred_proba_test, multi_class='ovr', average='weighted')
             elif hasattr(model, 'decision_function'):
                 y_pred_proba_test = model.decision_function(X_test_scaled)
+                if num_classes == 2:
+                    roc_auc = roc_auc_score(y_test_encoded, y_pred_proba_test)
+                else:
+                    roc_auc = roc_auc_score(y_test_encoded, y_pred_proba_test, multi_class='ovr', average='weighted')
             else:
-                y_pred_proba_test = y_pred_test.astype(float)
-            
-            roc_auc = roc_auc_score(y_test, y_pred_proba_test)
+                # No probability estimates available
+                roc_auc = 0.0
         except Exception as e:
             print(f"  Warning: Could not calculate ROC AUC for {model_name}: {str(e)}")
             roc_auc = 0.0
@@ -776,9 +848,19 @@ def test(models: dict, scaler, df_test: pd.DataFrame, target_bars: int = 45, tar
         Utils.print_color(f"  Recall:    {recall:.4f}", 'green')
         Utils.print_color(f"  ROC AUC:   {roc_auc:.4f}", 'green')
         
-        # Classification report
+        # Classification report (handle multi-class)
         print(f"\nClassification Report:")
-        print(classification_report(y_test, y_pred_test, target_names=['No Increase', 'Increase'], zero_division=np.nan))
+        num_classes = len(np.unique(y_test_encoded))
+        if num_classes == 3:
+            target_names = ['Short (-1)', 'Flat (0)', 'Long (1)']
+        elif num_classes == 2:
+            target_names = ['No Increase (0)', 'Increase (1)']
+        else:
+            target_names = None
+        print(classification_report(y_test_encoded, y_pred_test_encoded, target_names=target_names, zero_division=0))
+        
+        # Calculate confusion matrix
+        cm = confusion_matrix(y_test_encoded, y_pred_test_encoded)
         
         # Store results
         results_test[model_name] = {
@@ -787,7 +869,8 @@ def test(models: dict, scaler, df_test: pd.DataFrame, target_bars: int = 45, tar
             'precision': precision,
             'recall': recall,
             'roc_auc': roc_auc,
-            'y_pred': y_pred_test,
+            'y_pred': y_pred_test_encoded,
+            'confusion_matrix': cm
         }
     
     # Print summary and create visualizations

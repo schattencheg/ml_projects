@@ -61,41 +61,78 @@ def find_optimal_threshold(model, X_val_scaled, y_val, metric='f1'):
 def print_confusion_matrix_summary(results: dict):
     """
     Print detailed confusion matrix statistics for all models.
+    Handles both binary (2-class) and multi-class (3-class) classification.
     
     Parameters:
     -----------
     results : dict
         Dictionary with validation metrics for each model (must include confusion_matrix)
     """
-    print("\n" + "="*120)
+    print("\n" + "="*140)
     print("CONFUSION MATRIX SUMMARY (Validation Set)")
-    print("="*120)
+    print("="*140)
     
     # Create DataFrame for better formatting
     summary_data = []
+    is_multiclass = False
+    
     for model_name, metrics in results.items():
         if 'confusion_matrix' in metrics:
             cm = metrics['confusion_matrix']
-            tn, fp, fn, tp = cm.ravel()
+            total_samples = cm.sum()
             
-            total_samples = tn + fp + fn + tp
-            predicted_positive = tp + fp
-            predicted_negative = tn + fn
-            actual_positive = tp + fn
-            actual_negative = tn + fp
-            
-            summary_data.append({
-                'Model': model_name.replace('_', ' ').title(),
-                'Total': total_samples,
-                'Pred 1': predicted_positive,
-                'Pred 0': predicted_negative,
-                'True Pos': tp,
-                'True Neg': tn,
-                'False Pos': fp,
-                'False Neg': fn,
-                'Accuracy': f"{metrics['accuracy']:.4f}",
-                'F1': f"{metrics['f1']:.4f}"
-            })
+            # Detect if binary or multi-class
+            if cm.shape == (2, 2):
+                # Binary classification (2x2 matrix)
+                tn, fp, fn, tp = cm.ravel()
+                predicted_positive = tp + fp
+                predicted_negative = tn + fn
+                
+                summary_data.append({
+                    'Model': model_name.replace('_', ' ').title(),
+                    'Total': total_samples,
+                    'Pred 1': predicted_positive,
+                    'Pred 0': predicted_negative,
+                    'True Pos': tp,
+                    'True Neg': tn,
+                    'False Pos': fp,
+                    'False Neg': fn,
+                    'Accuracy': f"{metrics['accuracy']:.4f}",
+                    'F1': f"{metrics['f1']:.4f}"
+                })
+            elif cm.shape == (3, 3):
+                # Multi-class classification (3x3 matrix)
+                # Classes: -1 (Short), 0 (Flat), 1 (Long)
+                is_multiclass = True
+                
+                # Predictions per class
+                pred_short = cm[:, 0].sum()  # Predicted as -1
+                pred_flat = cm[:, 1].sum()   # Predicted as 0
+                pred_long = cm[:, 2].sum()   # Predicted as 1
+                
+                # Correct predictions per class
+                correct_short = cm[0, 0]  # Actually -1, predicted -1
+                correct_flat = cm[1, 1]   # Actually 0, predicted 0
+                correct_long = cm[2, 2]   # Actually 1, predicted 1
+                
+                # Total correct and incorrect
+                total_correct = correct_short + correct_flat + correct_long
+                total_incorrect = total_samples - total_correct
+                
+                summary_data.append({
+                    'Model': model_name.replace('_', ' ').title(),
+                    'Total': total_samples,
+                    'Pred Short': pred_short,
+                    'Pred Flat': pred_flat,
+                    'Pred Long': pred_long,
+                    'Correct Short': correct_short,
+                    'Correct Flat': correct_flat,
+                    'Correct Long': correct_long,
+                    'Total Correct': total_correct,
+                    'Total Wrong': total_incorrect,
+                    'Accuracy': f"{metrics['accuracy']:.4f}",
+                    'F1': f"{metrics['f1']:.4f}"
+                })
     
     if summary_data:
         df_summary = pd.DataFrame(summary_data)
@@ -104,14 +141,23 @@ def print_confusion_matrix_summary(results: dict):
         df_summary = df_summary.sort_values('F1', ascending=False)
         
         print(df_summary.to_string(index=False))
-        print("="*120)
-        print("Legend: Pred 1 = Predicted Positive (Increase), Pred 0 = Predicted Negative (No Increase)")
-        print("        True Pos = Correctly predicted increase, True Neg = Correctly predicted no increase")
-        print("        False Pos = Incorrectly predicted increase, False Neg = Missed increase")
-        print("="*120 + "\n")
+        print("="*140)
+        
+        if is_multiclass:
+            print("Legend (3-Class):")
+            print("  Pred Short/Flat/Long = Number of predictions for each class (-1/0/1)")
+            print("  Correct Short/Flat/Long = Correctly predicted samples for each class")
+            print("  Total Correct = All correct predictions, Total Wrong = All incorrect predictions")
+        else:
+            print("Legend (Binary):")
+            print("  Pred 1 = Predicted Positive (Increase), Pred 0 = Predicted Negative (No Increase)")
+            print("  True Pos = Correctly predicted increase, True Neg = Correctly predicted no increase")
+            print("  False Pos = Incorrectly predicted increase, False Neg = Missed increase")
+        
+        print("="*140 + "\n")
     else:
         print("No confusion matrix data available.")
-        print("="*120 + "\n")
+        print("="*140 + "\n")
 
 
 def print_training_results_summary(results: dict):

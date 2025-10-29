@@ -29,8 +29,12 @@ def test_small_dataset():
     try:
         # Train models
         print("\nTraining models...")
+        # Prepare data
+        X, y = prepare_data(df_train_sample, target_bars, target_pct)
+
         models, scaler, train_results, best_model_name = train(
-            df_train_sample, 
+            X, 
+            y,
             target_bars=10,  # Reduced for faster testing
             target_pct=1.0   # Reduced threshold
         )
