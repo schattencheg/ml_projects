@@ -1,5 +1,4 @@
 *$py.class
-*.csv
 *.egg
 *.egg-info/
 *.log
