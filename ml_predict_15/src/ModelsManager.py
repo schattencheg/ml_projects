@@ -122,7 +122,7 @@ class ModelsManager:
     
     def save_models(self, models, scaler=None, suffix=''):
         """
-        Save trained models and scaler to disk.
+        Save trained models and scaler to disk in a timestamped subdirectory.
         
         Parameters:
         -----------
@@ -131,53 +131,66 @@ class ModelsManager:
         scaler : sklearn scaler
             Fitted scaler (optional)
         suffix : str
-            Optional suffix for filenames (e.g., timestamp)
+            Optional timestamp suffix (YYYY-MM-DD_HH-MM-SS format)
+            If empty, current timestamp will be used
             
         Returns:
         --------
         dict : Paths where models were saved
         """
+        # Create timestamp in YYYY-MM-DD_HH-MM-SS format
         if not suffix:
-            suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
+            suffix = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        
+        # Create timestamped subdirectory
+        save_dir = os.path.join(self.models_dir, suffix)
+        os.makedirs(save_dir, exist_ok=True)
         
         saved_paths = {}
         
+        print(f"\n{'='*70}")
+        print(f"SAVING MODELS TO: {save_dir}")
+        print(f"{'='*70}")
+        
         # Save each model
         for name, model in models.items():
-            filename = f"{name}_{suffix}.joblib"
-            filepath = os.path.join(self.models_dir, filename)
+            filename = f"{name}.joblib"
+            filepath = os.path.join(save_dir, filename)
             joblib.dump(model, filepath)
             saved_paths[name] = filepath
-            print(f"✓ Saved {name} to {filepath}")
+            print(f"✓ Saved {name}")
         
         # Save scaler
         if scaler is not None:
-            scaler_path = os.path.join(self.models_dir, f"scaler_{suffix}.joblib")
+            scaler_path = os.path.join(save_dir, "scaler.joblib")
             joblib.dump(scaler, scaler_path)
             saved_paths['scaler'] = scaler_path
-            print(f"✓ Saved scaler to {scaler_path}")
+            print(f"✓ Saved scaler")
         
         # Save metadata
         metadata = {
             'timestamp': suffix,
             'models': list(models.keys()),
-            'has_scaler': scaler is not None
+            'has_scaler': scaler is not None,
+            'save_dir': save_dir
         }
-        metadata_path = os.path.join(self.models_dir, f"metadata_{suffix}.joblib")
+        metadata_path = os.path.join(save_dir, "metadata.joblib")
         joblib.dump(metadata, metadata_path)
         saved_paths['metadata'] = metadata_path
+        print(f"✓ Saved metadata")
         
-        print(f"\n✓ Saved {len(models)} models successfully")
+        print(f"\n✓ Saved {len(models)} models successfully to {save_dir}")
+        print(f"{'='*70}\n")
         return saved_paths
     
-    def load_models(self, suffix='latest'):
+    def load_models(self, suffix='latest') :
         """
-        Load trained models and scaler from disk.
+        Load trained models and scaler from disk from a timestamped subdirectory.
         
         Parameters:
         -----------
         suffix : str
-            Suffix to identify which models to load ('latest' or specific timestamp)
+            Timestamp subdirectory name ('latest' or specific timestamp like '2024-01-15_14-30-45')
             
         Returns:
         --------
@@ -190,65 +203,92 @@ class ModelsManager:
                 print("✗ No saved models found")
                 return {}, None, None
         
+        # Construct the load directory path
+        load_dir = os.path.join(self.models_dir, suffix)
+        
+        if not os.path.exists(load_dir):
+            print(f"✗ Model directory not found: {load_dir}")
+            return {}, None, None
+        
         models = {}
         scaler = None
         metadata = None
         
+        print(f"\n{'='*70}")
+        print(f"LOADING MODELS FROM: {load_dir}")
+        print(f"{'='*70}")
+        
         # Load metadata
-        metadata_path = os.path.join(self.models_dir, f"metadata_{suffix}.joblib")
+        metadata_path = os.path.join(load_dir, "metadata.joblib")
         if os.path.exists(metadata_path):
             metadata = joblib.load(metadata_path)
-            print(f"✓ Loaded metadata from {suffix}")
+            print(f"✓ Loaded metadata")
         
         # Load models
         for name in self.model_config.keys():
-            filepath = os.path.join(self.models_dir, f"{name}_{suffix}.joblib")
+            filepath = os.path.join(load_dir, f"{name}.joblib")
             if os.path.exists(filepath):
                 models[name] = joblib.load(filepath)
                 print(f"✓ Loaded {name}")
         
         # Load scaler
-        scaler_path = os.path.join(self.models_dir, f"scaler_{suffix}.joblib")
+        scaler_path = os.path.join(load_dir, "scaler.joblib")
         if os.path.exists(scaler_path):
             scaler = joblib.load(scaler_path)
             print(f"✓ Loaded scaler")
         
-        print(f"\n✓ Loaded {len(models)} models successfully")
+        print(f"\n✓ Loaded {len(models)} models successfully from {load_dir}")
+        print(f"{'='*70}\n")
         return models, scaler, metadata
     
     def _find_latest_suffix(self):
-        """Find the latest model suffix in the models directory."""
+        """Find the latest timestamped subdirectory in the models directory."""
         if not os.path.exists(self.models_dir):
             return None
         
-        metadata_files = [f for f in os.listdir(self.models_dir) if f.startswith('metadata_')]
-        if not metadata_files:
+        # Get all subdirectories that look like timestamps (YYYY-MM-DD_HH-MM-SS)
+        subdirs = []
+        for item in os.listdir(self.models_dir):
+            item_path = os.path.join(self.models_dir, item)
+            if os.path.isdir(item_path):
+                # Check if it contains metadata.joblib to confirm it's a valid model directory
+                metadata_path = os.path.join(item_path, 'metadata.joblib')
+                if os.path.exists(metadata_path):
+                    subdirs.append(item)
+        
+        if not subdirs:
             return None
         
-        # Extract timestamps and find the latest
-        suffixes = [f.replace('metadata_', '').replace('.joblib', '') for f in metadata_files]
-        return max(suffixes)
+        # Sort and return the latest (timestamps sort lexicographically)
+        return max(subdirs)
     
     def list_saved_models(self):
         """
-        List all saved model versions.
+        List all saved model versions (timestamped subdirectories).
         
         Returns:
         --------
-        list : List of (suffix, metadata) tuples
+        list : List of (timestamp, metadata) tuples sorted by timestamp (newest first)
         """
         if not os.path.exists(self.models_dir):
             return []
         
-        metadata_files = [f for f in os.listdir(self.models_dir) if f.startswith('metadata_')]
-        
         versions = []
-        for f in metadata_files:
-            suffix = f.replace('metadata_', '').replace('.joblib', '')
-            metadata_path = os.path.join(self.models_dir, f)
-            metadata = joblib.load(metadata_path)
-            versions.append((suffix, metadata))
         
+        # Iterate through subdirectories
+        for item in os.listdir(self.models_dir):
+            item_path = os.path.join(self.models_dir, item)
+            if os.path.isdir(item_path):
+                # Check if it contains metadata.joblib
+                metadata_path = os.path.join(item_path, 'metadata.joblib')
+                if os.path.exists(metadata_path):
+                    try:
+                        metadata = joblib.load(metadata_path)
+                        versions.append((item, metadata))
+                    except Exception as e:
+                        print(f"Warning: Could not load metadata from {item}: {e}")
+        
+        # Sort by timestamp (newest first)
         return sorted(versions, key=lambda x: x[0], reverse=True)
     
     def enable_model(self, model_name, enabled=True):

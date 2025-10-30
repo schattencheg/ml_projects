@@ -282,9 +282,13 @@ class BacktestNoLib:
         model,
         scaler,
         X_columns: List[str],
-        close_column: str = 'close',
-        timestamp_column: str = 'Timestamp'
-    ) -> Dict:
+        probability_threshold = 0.6,
+        trailing_stop_pct = 2.0,
+        take_profit_pct = None,
+        position_size_pct = 1.0,
+        plot = False,  # Disable plotting to avoid memory issues
+        printlog = False
+    ) -> Tuple[Dict, pd.DataFrame]:
         """
         Run backtest using ML model predictions.
         
@@ -298,17 +302,30 @@ class BacktestNoLib:
             Fitted scaler for features
         X_columns : List[str]
             List of feature column names
-        close_column : str
-            Name of the close price column
-        timestamp_column : str
-            Name of the timestamp column
+        probability_threshold : float
+            Minimum probability threshold for entry signals
+        trailing_stop_pct : float
+            Trailing stop loss percentage
+        take_profit_pct : float, optional
+            Take profit percentage
+        position_size_pct : float
+            Position size as percentage of capital
+        plot : bool
+            Whether to plot results (not implemented for BacktestNoLib)
+        printlog : bool
+            Whether to print log messages
             
         Returns:
         --------
         results : Dict
             Dictionary with backtest results and metrics
+        trades : pd.DataFrame
+            DataFrame with trade history
         """
         self.reset()
+        
+        close_column: str = 'close'
+        timestamp_column: str = 'timestamp'
         
         # Ensure timestamp is datetime
         if timestamp_column in df.columns:
@@ -384,7 +401,10 @@ class BacktestNoLib:
         # Calculate metrics
         results = self.calculate_metrics(df, close_column)
         
-        return results
+        # Create trades dataframe
+        trades_df = pd.DataFrame(self.trades) if len(self.trades) > 0 else pd.DataFrame()
+        
+        return results, trades_df
     
     def calculate_metrics(self, df: pd.DataFrame, close_column: str = 'close') -> Dict:
         """
@@ -403,20 +423,30 @@ class BacktestNoLib:
             Dictionary with performance metrics
         """
         if len(self.trades) == 0:
+            # Calculate buy and hold return even with no trades
+            buy_and_hold_return_pct = (df[close_column].iloc[-1] / df[close_column].iloc[0] - 1) * 100 if len(df) > 0 else 0
+            
             return {
-                'total_trades': 0,
-                'final_capital': self.capital,
+                'initial_capital': self.initial_capital,
+                'final_value': self.capital,
                 'total_return': 0,
                 'total_return_pct': 0,
-                'buy_and_hold_return_pct': 0,
+                'sharpe_ratio': 0,
+                'max_drawdown': 0,
+                'total_trades': 0,
+                'won_trades': 0,
+                'lost_trades': 0,
                 'win_rate': 0,
                 'avg_win': 0,
                 'avg_loss': 0,
+                'best_trade': 0,
+                'worst_trade': 0,
                 'profit_factor': 0,
-                'max_drawdown': 0,
-                'sharpe_ratio': 0,
+                'buy_and_hold_return_pct': buy_and_hold_return_pct,
+                'avg_bars_held': 0,
                 'trades': [],
-                'equity_curve': pd.DataFrame(self.equity_curve)
+                'equity_curve': pd.DataFrame(self.equity_curve),
+                'signals': self.signals
             }
         
         trades_df = pd.DataFrame(self.trades)
@@ -455,20 +485,23 @@ class BacktestNoLib:
         sharpe_ratio = equity_df['returns'].mean() / equity_df['returns'].std() * np.sqrt(252) if equity_df['returns'].std() > 0 else 0
         
         metrics = {
-            'total_trades': total_trades,
-            'winning_trades': len(winning_trades),
-            'losing_trades': len(losing_trades),
-            'final_capital': final_capital,
+            'initial_capital': self.initial_capital,
+            'final_value': final_capital,
             'total_return': total_return,
             'total_return_pct': total_return_pct,
-            'buy_and_hold_return_pct': buy_and_hold_return_pct,
+            'sharpe_ratio': sharpe_ratio,
+            'max_drawdown': max_drawdown,
+            'total_trades': total_trades,
+            'won_trades': len(winning_trades),
+            'lost_trades': len(losing_trades),
             'win_rate': win_rate,
             'avg_win': avg_win,
             'avg_loss': avg_loss,
+            'best_trade': winning_trades['net_pnl'].max() if len(winning_trades) > 0 else 0,
+            'worst_trade': losing_trades['net_pnl'].min() if len(losing_trades) > 0 else 0,
             'profit_factor': profit_factor,
-            'max_drawdown': max_drawdown,
-            'sharpe_ratio': sharpe_ratio,
-            'avg_bars_held': trades_df['bars_held'].mean(),
+            'buy_and_hold_return_pct': buy_and_hold_return_pct,
+            'avg_bars_held': trades_df['bars_held'].mean() if len(trades_df) > 0 else 0,
             'trades': self.trades,
             'equity_curve': equity_df,
             'signals': self.signals
@@ -491,9 +524,9 @@ class BacktestNoLib:
         
         print(f"\nCapital:")
         if 'initial_capital' in results:
-            print(f"  Initial Capital:        ${self.initial_capital:,.2f}")
-        if 'final_capital' in results:
-            print(f"  Final Capital:          ${results['final_capital']:,.2f}")
+            print(f"  Initial Capital:        ${results['initial_capital']:,.2f}")
+        if 'final_value' in results:
+            print(f"  Final Value:            ${results['final_value']:,.2f}")
         if 'total_return' in results:
             print(f"  Total Return:           ${results['total_return']:,.2f}")
         if 'total_return_pct' in results:
@@ -503,10 +536,10 @@ class BacktestNoLib:
         
         print(f"\nTrades:")
         print(f"  Total Trades:           {results['total_trades']}")
-        if 'winning_trades' in results:
-            print(f"  Winning Trades:         {results['winning_trades']}")
-        if 'losing_trades' in results:
-            print(f"  Losing Trades:          {results['losing_trades']}")
+        if 'won_trades' in results:
+            print(f"  Won Trades:             {results['won_trades']}")
+        if 'lost_trades' in results:
+            print(f"  Lost Trades:            {results['lost_trades']}")
         if 'win_rate' in results:
             print(f"  Win Rate:               {results['win_rate']:.2f}%")
         

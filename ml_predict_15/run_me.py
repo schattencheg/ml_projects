@@ -21,6 +21,10 @@ from src.Trainer import Trainer
 from src.Tester import Tester
 from src.ReportManager import ReportManager
 from src.HealthManager import HealthManager
+# Backtesting
+from src.BacktestNoLib import BacktestNoLib
+from src.BacktestBacktrader import BacktestBacktraderML
+from src.BacktestBacktesting import BacktestBacktestingML
 
 
 # Data paths
@@ -32,7 +36,7 @@ os.environ["PATH_TEST"] = PATH_TEST
 os.environ["PATH_MODELS"] = PATH_MODELS
 
 
-def main_train():
+def main_train(features_method='crypto'):
     """Main execution function."""
     
     print("="*80)
@@ -58,47 +62,27 @@ def main_train():
     print("="*80)
     
     fg = FeaturesGenerator()
+    top_features = ['atr_pct_28', 'atr_pct_14', 'volatility_20h', 'hl_spread_pct', 'volatility_50h', 'shadow_ratio', 'volatility_5h', 'volatility_10h', 'volume_skew_50', 'vpt', 'volume_skew_10', 'volume_skew_20',
+        'price_to_ema_200', 'momentum_pct_48h', 'price_to_ema_100', 'momentum_pct_3h', 'price_to_sma_100', 'bb_width_20', 'bb_width_50', 'price_to_ema_20', 'volume_sma_5', 'stoch_14', 'price_to_sma_200',
+        'price_to_ema_50', 'volume_sma_50', 'stoch_signal_28', 'mfi_14', 'price_to_sma_10', 'momentum_pct_6h','price_to_ema_10']
     
-    print("Generating classical features (SMA, RSI, Bollinger, Stochastic)...")
-    df_train_features = fg.generate_features(df_train, method='classical')
-    df_test_features = fg.generate_features(df_test, method='classical')
+    print("Generating features...")
+    features_generated = fg.generate_features(df_train, method=features_method)
+    df_train_features = features_generated['X_train'][top_features]
+    df_train_target = features_generated['y_train']
+    df_test_features = features_generated['X_test'][top_features]
+    df_test_target = features_generated['y_test']
     
     print(f"✓ Features generated: {len(df_train_features.columns)} columns")
     
-    # ==================== STEP 3: CREATE TARGET ====================
-    print("\n" + "="*80)
-    print("STEP 3: CREATING TARGET")
-    print("="*80)
-    
-    # Parameters:
-    # - target_bars=15: Look ahead 15 bars (15 hours for hourly data)
-    # - target_pct=3.0: Predict if price increases by 3% or more
-    # - method='binary': Two classes (0=No Rise, 1=Rise)
-    
-    print("Creating target variable...")
-    print(f"  Look-ahead period: 15 bars")
-    print(f"  Price change threshold: 3.0%")
-    print(f"  Method: binary classification")
-    
-    df_train_with_target = fg.create_target(
-        df_train_features, 
-        target_bars=15, 
-        target_pct=3.0, 
-        method='binary'
-    )
-    
-    df_test_with_target = fg.create_target(
-        df_test_features, 
-        target_bars=15, 
-        target_pct=3.0, 
-        method='binary'
-    )
+    df_train_with_target = pd.concat([df_train_features, df_train_target], axis=1)
+    df_test_with_target = pd.concat([df_test_features, df_test_target], axis=1)
     
     # Drop NaN rows
     df_train_with_target = df_train_with_target.dropna()
     df_test_with_target = df_test_with_target.dropna()
     
-    print(f"✓ Target created")
+    print(f"✓ Features prepared")
     print(f"  Training samples: {len(df_train_with_target):,}")
     print(f"  Test samples: {len(df_test_with_target):,}")
     
@@ -270,6 +254,75 @@ def main_train():
     
     print("\n" + "="*80 + "\n")
 
+def main_backtest(features_method='crypto'):
+    """Main execution function for backtesting."""
+    # Load models
+    models_manager = ModelsManager(PATH_MODELS)
+    models, scaler, metadata = models_manager.load_models('latest')
+
+    # Backtest
+    df_test = pd.read_csv(PATH_TEST)
+
+    # Generate features
+    print("Generating features...")
+    fg = FeaturesGenerator()
+    top_features = ['atr_pct_28', 'atr_pct_14', 'volatility_20h', 'hl_spread_pct', 'volatility_50h', 'shadow_ratio', 'volatility_5h', 'volatility_10h', 'volume_skew_50', 'vpt', 'volume_skew_10', 'volume_skew_20',
+        'price_to_ema_200', 'momentum_pct_48h', 'price_to_ema_100', 'momentum_pct_3h', 'price_to_sma_100', 'bb_width_20', 'bb_width_50', 'price_to_ema_20', 'volume_sma_5', 'stoch_14', 'price_to_sma_200',
+        'price_to_ema_50', 'volume_sma_50', 'stoch_signal_28', 'mfi_14', 'price_to_sma_10', 'momentum_pct_6h','price_to_ema_10']
+    features_response = fg.generate_features(df_test, method=features_method)
+    df_test_features = features_response['df'][['timestamp', 'open', 'high', 'low', 'close', 'volume'] + top_features]
+    
+    # Validate data
+    print(f"\nData shape: {df_test_features.shape}")
+    print(f"Date range: {df_test_features['timestamp'].min()} to {df_test_features['timestamp'].max()}")
+    
+    # Check for NaN/inf values
+    nan_counts = df_test_features.isna().sum()
+    if nan_counts.any():
+        print(f"\n⚠ Warning: Found NaN values:")
+        print(nan_counts[nan_counts > 0])
+    
+    # Drop rows with NaN in OHLCV columns
+    ohlcv_cols = ['open', 'high', 'low', 'close', 'volume']
+    df_test_features = df_test_features.dropna(subset=ohlcv_cols)
+    print(f"\nData after cleaning: {df_test_features.shape}")
+    
+    # Run backtests
+    print(f"\n{'='*80}")
+    print(f"RUNNING BACKTESTS FOR {len(models)} MODELS")
+    print(f"{'='*80}\n")
+    
+    #backtester = BacktestBacktraderML()
+    #backtester = BacktestNoLib()
+    backtester = BacktestBacktestingML()
+    for i, (model_name, model) in enumerate(models.items(), 1):
+        print(f"\n{'='*80}")
+        print(f"BACKTEST {i}/{len(models)}: {model_name.upper()}")
+        print(f"{'='*80}")
+        
+        results, trades = backtester.run_backtest(
+            df = df_test_features,
+            model = model,
+            scaler = scaler,
+            X_columns = top_features,
+            probability_threshold = 0.6,
+            trailing_stop_pct = 2.0,
+            take_profit_pct = None,
+            position_size_pct = 1.0,
+            plot = False,  # Disable plotting to avoid memory issues
+            printlog = False
+        )
+        
+        # Print results
+        print(f"\nResults for {model_name}:")
+        print(f"  Final Value: ${results['final_value']:,.2f}")
+        print(f"  Total Return: {results['total_return']:.2f}%")
+        print(f"  Total Trades: {results['total_trades']}")
+        print(f"  Win Rate: {results['win_rate']:.2f}%")
+        print(f"  Sharpe Ratio: {results.get('sharpe_ratio', 0):.2f}")
+        print(f"  Max Drawdown: {results.get('max_drawdown', 0):.2f}%")
+
 
 if __name__ == "__main__":
-    main()
+    #main_train()
+    main_backtest()

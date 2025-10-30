@@ -499,17 +499,9 @@ class FeaturesGenerator:
             'feature_names': feature_cols,
             'train_data': train_data,
             'val_data': val_data,
-            'test_data': test_data
+            'test_data': test_data,
+            'df': df
         }
-        
-        # Return the full dataframe with features
-        full_df = pd.concat([
-            result['train_data'],
-            result['val_data'],
-            result['test_data']
-        ], ignore_index=True)
-        
-        return full_df
     
     # ==================== OTUS FEATURES ====================
     

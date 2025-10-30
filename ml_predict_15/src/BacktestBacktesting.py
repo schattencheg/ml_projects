@@ -129,7 +129,7 @@ class BacktestBacktesting(Strategy):
         return size
 
 
-class MLBacktesterPy:
+class BacktestBacktestingML:
     """
     Wrapper class for backtesting.py that handles ML model integration.
     
@@ -180,7 +180,7 @@ class MLBacktesterPy:
         scaler,
         X_columns: List[str],
         close_column: str = 'close',
-        timestamp_column: str = 'Timestamp'
+        timestamp_column: str = 'timestamp'
     ) -> pd.DataFrame:
         """
         Prepare data with ML predictions for backtesting.
@@ -209,10 +209,13 @@ class MLBacktesterPy:
         df_prepared = df.copy()
         
         # Ensure we have the required columns
-        required_cols = ['open', 'high', 'low', 'close', 'Volume']
+        required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
         for col in required_cols:
             if col not in df_prepared.columns:
-                raise ValueError(f"Missing required column: {col}")
+                if col.lower() in df_prepared.columns:
+                    df_prepared.columns = [x if not x.lower() == col.lower() else col for x in df_prepared.columns]
+                else:
+                    raise ValueError(f"Missing required column: {col}")
         
         # Get features
         X = df_prepared[X_columns].values
@@ -333,6 +336,18 @@ class MLBacktesterPy:
         if plot:
             bt.plot()
         
+        if 'final_value' not in stats:
+            stats['final_value'] = self.initial_cash
+        if 'total_return' not in stats:
+            stats['total_return'] = 0
+        if 'total_trades' not in stats:
+            stats['total_trades'] = 0
+        if 'win_rate' not in stats:
+            stats['win_rate'] = 0
+        if 'sharpe_ratio' not in stats:
+            stats['sharpe_ratio'] = 0
+        if 'max_drawdown' not in stats:
+            stats['max_drawdown'] = 0
         return stats, trades
     
     def optimize(

@@ -217,7 +217,7 @@ class MLPandasData(bt.feeds.PandasData):
     )
 
 
-class MLBacktesterBT:
+class BacktestBacktraderML:
     """
     Wrapper class for backtrader that handles ML model integration.
     
@@ -289,7 +289,7 @@ class MLBacktesterBT:
         df_prepared = df.copy()
         
         # Ensure we have the required columns
-        required_cols = ['open', 'high', 'low', 'close', 'Volume']
+        required_cols = ['open', 'high', 'low', 'close', 'volume']
         for col in required_cols:
             if col not in df_prepared.columns:
                 raise ValueError(f"Missing required column: {col}")
@@ -328,6 +328,25 @@ class MLBacktesterBT:
         # Ensure index is datetime
         if not isinstance(df_prepared.index, pd.DatetimeIndex):
             df_prepared.index = pd.to_datetime(df_prepared.index)
+        
+        # Validate data - check for NaN/inf values in OHLCV columns
+        ohlcv_cols = ['open', 'high', 'low', 'close', 'volume']
+        for col in ohlcv_cols:
+            if df_prepared[col].isna().any():
+                print(f"Warning: Found NaN values in {col}, filling with forward fill")
+                df_prepared[col].fillna(method='ffill', inplace=True)
+                df_prepared[col].fillna(method='bfill', inplace=True)
+            
+            if np.isinf(df_prepared[col]).any():
+                print(f"Warning: Found inf values in {col}, replacing with median")
+                median_val = df_prepared[col].replace([np.inf, -np.inf], np.nan).median()
+                df_prepared[col].replace([np.inf, -np.inf], median_val, inplace=True)
+        
+        # Drop any remaining rows with NaN in OHLCV
+        initial_len = len(df_prepared)
+        df_prepared = df_prepared.dropna(subset=ohlcv_cols)
+        if len(df_prepared) < initial_len:
+            print(f"Warning: Dropped {initial_len - len(df_prepared)} rows with NaN values")
         
         return df_prepared
     
@@ -472,7 +491,13 @@ class MLBacktesterBT:
         
         # Plot if requested
         if plot:
-            cerebro.plot(style='candlestick')
+            try:
+                print("\nGenerating backtest plot...")
+                cerebro.plot(style='candlestick', iplot=False)
+                print("✓ Plot generated successfully")
+            except Exception as e:
+                print(f"⚠ Warning: Could not generate plot: {e}")
+                print("  Continuing without plot...")
         
         return results_dict, trades_df
     
