@@ -10,6 +10,7 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple
 import backtrader as bt
 from datetime import datetime
+from src.BacktestBase import BacktestBase
 
 
 class BacktestBacktrader(bt.Strategy):
@@ -217,7 +218,7 @@ class MLPandasData(bt.feeds.PandasData):
     )
 
 
-class BacktestBacktraderML:
+class BacktestBacktraderML(BacktestBase):
     """
     Wrapper class for backtrader that handles ML model integration.
     
@@ -248,8 +249,10 @@ class BacktestBacktraderML:
         slippage_fixed : float
             Fixed slippage amount
         """
+        # Initialize base class
+        super().__init__(initial_capital=initial_cash, commission=commission, slippage=slippage_perc)
+        
         self.initial_cash = initial_cash
-        self.commission = commission
         self.slippage_perc = slippage_perc
         self.slippage_fixed = slippage_fixed
         

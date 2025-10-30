@@ -293,8 +293,8 @@ def main_backtest(features_method='crypto'):
     print(f"{'='*80}\n")
     
     #backtester = BacktestBacktraderML()
-    #backtester = BacktestNoLib()
-    backtester = BacktestBacktestingML()
+    backtester = BacktestNoLib()
+    #backtester = BacktestBacktestingML()
     for i, (model_name, model) in enumerate(models.items(), 1):
         print(f"\n{'='*80}")
         print(f"BACKTEST {i}/{len(models)}: {model_name.upper()}")
@@ -321,6 +321,7 @@ def main_backtest(features_method='crypto'):
         print(f"  Win Rate: {results['win_rate']:.2f}%")
         print(f"  Sharpe Ratio: {results.get('sharpe_ratio', 0):.2f}")
         print(f"  Max Drawdown: {results.get('max_drawdown', 0):.2f}%")
+        backtester.create_comprehensive_visualizations(trades)
 
 
 if __name__ == "__main__":

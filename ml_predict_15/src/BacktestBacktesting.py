@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 from backtesting import Backtest, Strategy
 from backtesting.lib import crossover
 from backtesting.test import SMA
+from src.BacktestBase import BacktestBase
 
 
 class BacktestBacktesting(Strategy):
@@ -129,7 +130,7 @@ class BacktestBacktesting(Strategy):
         return size
 
 
-class BacktestBacktestingML:
+class BacktestBacktestingML(BacktestBase):
     """
     Wrapper class for backtesting.py that handles ML model integration.
     
@@ -166,8 +167,10 @@ class BacktestBacktestingML:
         exclusive_orders : bool
             Whether orders are exclusive
         """
+        # Initialize base class
+        super().__init__(initial_capital=initial_cash, commission=commission)
+        
         self.initial_cash = initial_cash
-        self.commission = commission
         self.margin = margin
         self.trade_on_close = trade_on_close
         self.hedging = hedging

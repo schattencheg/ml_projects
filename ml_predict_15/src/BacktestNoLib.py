@@ -12,9 +12,10 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import datetime
 from tqdm import tqdm
+from src.BacktestBase import BacktestBase
 
 
-class BacktestNoLib:
+class BacktestNoLib(BacktestBase):
     """
     Backtester that uses ML model predictions as trading signals.
     Supports trailing stop loss and various position sizing strategies.
@@ -56,12 +57,13 @@ class BacktestNoLib:
         max_holding_bars : int, optional
             Maximum number of bars to hold a position
         """
-        self.initial_capital = initial_capital
+        # Initialize base class
+        super().__init__(initial_capital=initial_capital, commission=commission, slippage=slippage)
+        
+        # BacktestNoLib specific parameters
         self.position_size = position_size
         self.trailing_stop_pct = trailing_stop_pct
         self.take_profit_pct = take_profit_pct
-        self.commission = commission
-        self.slippage = slippage
         self.use_probability_threshold = use_probability_threshold
         self.probability_threshold = probability_threshold
         self.max_holding_bars = max_holding_bars
@@ -73,11 +75,6 @@ class BacktestNoLib:
         self.highest_price = 0
         self.trailing_stop_price = 0
         self.bars_in_position = 0
-        
-        # Results tracking
-        self.trades = []
-        self.equity_curve = []
-        self.signals = []
         
     def reset(self):
         """Reset the backtester to initial state."""
@@ -398,8 +395,8 @@ class BacktestNoLib:
             final_timestamp = df[timestamp_column].iloc[-1]
             self.exit_long(final_price, final_timestamp, reason='END_OF_DATA')
         
-        # Calculate metrics
-        results = self.calculate_metrics(df, close_column)
+        # Calculate comprehensive metrics using base class
+        results = self.calculate_comprehensive_metrics(df)
         
         # Create trades dataframe
         trades_df = pd.DataFrame(self.trades) if len(self.trades) > 0 else pd.DataFrame()
