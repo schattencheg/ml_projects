@@ -6,7 +6,7 @@ Run this file to see a complete backtest in action.
 """
 
 import pandas as pd
-from src.MLBacktester import MLBacktester
+from src.MLBacktester import BacktestNoLib
 from src.data_preparation import prepare_data
 from src.FeaturesGenerator import FeaturesGenerator
 from src.model_loader import load_all_models, load_scaler, list_available_models
@@ -60,7 +60,7 @@ def main():
     
     # Step 4: Initialize backtester
     print("\n[4/5] Initializing backtester...")
-    backtester = MLBacktester(
+    backtester = BacktestNoLib(
         initial_capital=10000.0,        # Start with $10,000
         position_size=1.0,              # Use 100% of capital per trade
         trailing_stop_pct=2.0,          # 2% trailing stop loss

@@ -13,7 +13,7 @@ from backtesting.lib import crossover
 from backtesting.test import SMA
 
 
-class MLStrategy(Strategy):
+class BacktestBacktesting(Strategy):
     """
     Strategy class for backtesting.py that uses ML model predictions as signals.
     
@@ -306,15 +306,15 @@ class MLBacktesterPy:
         )
         
         # Set strategy parameters
-        MLStrategy.probability_threshold = probability_threshold
-        MLStrategy.trailing_stop_pct = trailing_stop_pct
-        MLStrategy.take_profit_pct = take_profit_pct
-        MLStrategy.position_size_pct = position_size_pct
+        BacktestBacktesting.probability_threshold = probability_threshold
+        BacktestBacktesting.trailing_stop_pct = trailing_stop_pct
+        BacktestBacktesting.take_profit_pct = take_profit_pct
+        BacktestBacktesting.position_size_pct = position_size_pct
         
         # Create backtest
         bt = Backtest(
             df_prepared,
-            MLStrategy,
+            BacktestBacktesting,
             cash=self.initial_cash,
             commission=self.commission,
             margin=self.margin,
@@ -392,7 +392,7 @@ class MLBacktesterPy:
         # Create backtest
         bt = Backtest(
             df_prepared,
-            MLStrategy,
+            BacktestBacktesting,
             cash=self.initial_cash,
             commission=self.commission,
             margin=self.margin,

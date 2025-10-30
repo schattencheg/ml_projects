@@ -10,7 +10,7 @@ This example demonstrates how to:
 
 import pandas as pd
 import numpy as np
-from src.MLBacktester import MLBacktester
+from src.MLBacktester import BacktestNoLib
 from src.data_preparation import prepare_data
 from src.model_loader import load_all_models, load_scaler, list_available_models
 import matplotlib.pyplot as plt
@@ -62,7 +62,7 @@ def backtest_single_model(
         Backtest results
     """
     # Initialize backtester
-    backtester = MLBacktester(
+    backtester = BacktestNoLib(
         initial_capital=initial_capital,
         position_size=position_size,
         trailing_stop_pct=trailing_stop_pct,
@@ -132,7 +132,7 @@ def compare_trailing_stops(
     results_list = []
     
     for trailing_stop in trailing_stops:
-        backtester = MLBacktester(
+        backtester = BacktestNoLib(
             initial_capital=10000.0,
             position_size=1.0,
             trailing_stop_pct=trailing_stop,
@@ -240,7 +240,7 @@ def compare_models(
     
     for model_name, model in models.items():
         
-        backtester = MLBacktester(
+        backtester = BacktestNoLib(
             initial_capital=10000.0,
             position_size=1.0,
             trailing_stop_pct=trailing_stop_pct,

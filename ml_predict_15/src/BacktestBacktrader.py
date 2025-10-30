@@ -12,7 +12,7 @@ import backtrader as bt
 from datetime import datetime
 
 
-class MLStrategy(bt.Strategy):
+class BacktestBacktrader(bt.Strategy):
     """
     Backtrader strategy that uses ML model predictions as signals.
     
@@ -393,7 +393,7 @@ class MLBacktesterBT:
         
         # Add strategy
         cerebro.addstrategy(
-            MLStrategy,
+            BacktestBacktrader,
             probability_threshold=probability_threshold,
             trailing_stop_pct=trailing_stop_pct,
             take_profit_pct=take_profit_pct,
@@ -527,7 +527,7 @@ class MLBacktesterBT:
         stop_start, stop_end, stop_step = trailing_stop_range
         
         cerebro.optstrategy(
-            MLStrategy,
+            BacktestBacktrader,
             probability_threshold=np.arange(prob_start, prob_end, prob_step),
             trailing_stop_pct=np.arange(stop_start, stop_end, stop_step)
         )

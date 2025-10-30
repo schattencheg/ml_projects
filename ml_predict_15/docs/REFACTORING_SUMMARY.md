@@ -1,259 +1,383 @@
-# Model Training Refactoring Summary
+# Refactoring Summary - Class-Based Architecture
 
-## Overview
+## What Was Done
 
-The model training code has been refactored into a modular structure for better organization, maintainability, and reusability.
+Refactored the ML pipeline into a clean, object-oriented architecture with 5 specialized classes, each handling a specific responsibility.
 
-## New Module Structure
+## New Classes Created
 
-### 1. **src/model_configs.py** - Model Configuration
-Contains all model creation and configuration logic:
-- `detect_hardware()` - Hardware detection (CPU cores, GPU availability)
-- `HARDWARE_INFO` - Global hardware information dictionary
-- `MODEL_ENABLED_CONFIG` - Dictionary to enable/disable models
-- `get_model_configs(use_gpu, n_jobs)` - Creates all ML model configurations
-- `add_neural_network_models()` - Adds neural network models (LSTM, CNN, Hybrid)
+### 1. **ModelsManager** (`src/ModelsManager.py`) - ~300 lines
+**Purpose:** Manage ML model lifecycle (create, save, load)
 
-**What moved here:**
-- Hardware detection logic (~60 lines)
-- Model configuration dictionaries (~150 lines)
-- All model instantiation code
+**Key Features:**
+- Create 10 pre-configured ML models
+- Save/load models with timestamps
+- Version management
+- Enable/disable models
+- List available versions
 
-### 2. **src/model_evaluation.py** - Evaluation & Visualization
-Contains all evaluation, metrics, and visualization functions:
-- `find_optimal_threshold()` - Finds optimal probability threshold
-- `print_training_results_summary()` - Prints training results table
-- `print_test_results_summary()` - Prints test results table
-- `plot_training_comparison()` - Creates training visualization
-- `plot_model_comparison()` - Creates test visualization
+**Usage:**
+```python
+models_manager = ModelsManager(models_dir='models')
+models = models_manager.create_models()
+models_manager.save_models(models, scaler, suffix='20251030')
+loaded_models, scaler, metadata = models_manager.load_models(suffix='latest')
+```
 
-**What moved here:**
-- Threshold optimization logic (~50 lines)
-- All printing/formatting functions (~100 lines)
-- All plotting/visualization functions (~200 lines)
+---
 
-### 3. **src/data_preparation.py** - Data Preparation (Already Existed)
-Contains data preparation and scaling:
-- `prepare_data()` - Prepares OHLCV data with features and targets
-- `fit_scaler_standard()` - Fits StandardScaler
-- `fit_scaler_minmax()` - Fits MinMaxScaler
+### 2. **FeaturesGenerator** (`src/FeaturesGeneratorNew.py`) - ~250 lines
+**Purpose:** Unified feature generation and target creation
 
-**No changes** - This module already existed and is well-organized.
+**Key Features:**
+- Multiple feature methods: 'classical', 'crypto' (150+), 'otus'
+- Flexible target creation: 'binary', 'classification', 'regression'
+- Automatic data preprocessing
+- Column name normalization
 
-### 4. **src/model_training.py** - Training Logic (Simplified)
-Now focuses ONLY on the core training workflow:
-- `train_and_evaluate_model()` - Trains and evaluates a single model
-- `train()` - Main training function with MLflow integration
-- `test()` - Tests trained models on new data
+**Usage:**
+```python
+fg = FeaturesGenerator()
+df_features = fg.generate_features(df, method='classical')
+df_target = fg.create_target(df, target_bars=15, target_pct=3.0, method='binary')
+```
 
-**What remains here:**
-- Core training loop logic
-- SMOTE oversampling application
-- MLflow experiment tracking
-- Timestamped model saving
+---
+
+### 3. **Trainer** (`src/Trainer.py`) - ~200 lines
+**Purpose:** Train multiple ML models with optimizations
+
+**Key Features:**
+- Automatic SMOTE for imbalanced data
+- Threshold optimization
+- Feature scaling
 - Progress tracking with tqdm
+- Training time measurement
+- Validation set support
 
-## Benefits of Refactoring
+**Usage:**
+```python
+trainer = Trainer(use_smote=True, optimize_threshold=True, use_scaler=True)
+trained_models, scaler, results, best_name = trainer.train(
+    models, X_train, y_train, X_val, y_val
+)
+trainer.print_results()
+```
 
-### 1. **Better Organization**
-- Each module has a single, clear responsibility
-- Easy to find specific functionality
-- Logical grouping of related functions
+---
+
+### 4. **Tester** (`src/Tester.py`) - ~180 lines
+**Purpose:** Test trained models on test data
+
+**Key Features:**
+- Test multiple models
+- Comprehensive metrics (accuracy, precision, recall, F1)
+- Detailed classification reports
+- Confusion matrices
+- Model comparison
+
+**Usage:**
+```python
+tester = Tester(scaler=scaler)
+test_results = tester.test(models, X_test, y_test, optimal_thresholds)
+tester.print_results()
+tester.print_detailed_report('xgboost', y_test)
+```
+
+---
+
+### 5. **HealthManager** (`src/HealthManager.py`) - ~280 lines
+**Purpose:** Monitor model health and determine retraining needs
+
+**Key Features:**
+- Set baseline performance metrics
+- Detect performance degradation
+- Track model age
+- Recommend retraining
+- Online monitoring
+- Health history tracking
+- Export reports
+
+**Usage:**
+```python
+health_manager = HealthManager(performance_threshold=0.05, time_threshold_days=30)
+health_manager.set_baseline('xgboost', metrics, timestamp)
+health_report = health_manager.check_health('xgboost', current_metrics)
+health_manager.print_health_report(health_report)
+```
+
+---
+
+## Files Created
+
+1. **src/ModelsManager.py** - Model lifecycle management
+2. **src/FeaturesGeneratorNew.py** - Unified feature generation
+3. **src/Trainer.py** - Training logic
+4. **src/Tester.py** - Testing logic
+5. **src/HealthManager.py** - Health monitoring
+6. **example_refactored_workflow.py** - Complete workflow example
+7. **docs/REFACTORED_ARCHITECTURE.md** - Comprehensive documentation
+
+**Total new code:** ~1,500 lines  
+**Total documentation:** ~800 lines
+
+---
+
+## Complete Workflow
+
+```python
+# 1. Load data
+df_train = pd.read_csv("data/hour/btc.csv")
+df_test = pd.read_csv("data/hour/btc_2025.csv")
+
+# 2. Generate features
+fg = FeaturesGenerator()
+df_train_features = fg.generate_features(df_train, method='classical')
+df_test_features = fg.generate_features(df_test, method='classical')
+
+# 3. Create target
+df_train_target = fg.create_target(df_train_features, target_bars=15, target_pct=3.0)
+df_test_target = fg.create_target(df_test_features, target_bars=15, target_pct=3.0)
+
+# 4. Prepare data
+X_train, y_train = df_train_target[feature_cols], df_train_target['target']
+X_test, y_test = df_test_target[feature_cols], df_test_target['target']
+
+# 5. Create models
+models_manager = ModelsManager()
+models = models_manager.create_models()
+
+# 6. Train models
+trainer = Trainer(use_smote=True, optimize_threshold=True)
+trained_models, scaler, results, best_name = trainer.train(models, X_train, y_train)
+
+# 7. Save models
+models_manager.save_models(trained_models, scaler)
+
+# 8. Test models
+tester = Tester(scaler=scaler)
+test_results = tester.test(trained_models, X_test, y_test)
+
+# 9. Monitor health
+health_manager = HealthManager()
+health_manager.set_baseline(best_name, test_results[best_name]['metrics'])
+```
+
+---
+
+## Benefits
+
+### 1. **Separation of Concerns**
+Each class has one responsibility:
+- ModelsManager → Models
+- FeaturesGenerator → Features
+- Trainer → Training
+- Tester → Testing
+- HealthManager → Monitoring
 
 ### 2. **Improved Maintainability**
-- Changes are isolated to specific modules
-- Easier to debug and test individual components
-- Reduced risk of breaking unrelated functionality
+- Smaller, focused files
+- Clear interfaces
+- Easy to modify
+- Self-documenting code
 
-### 3. **Enhanced Reusability**
+### 3. **Better Testability**
+- Each class can be unit tested
+- Mock dependencies easily
+- Isolated testing
+
+### 4. **Enhanced Reusability**
+- Use classes in different projects
+- Mix and match components
 - Import only what you need
-- Use model configs in other projects
-- Reuse evaluation functions for different workflows
 
-### 4. **Cleaner Codebase**
-- Reduced file size (model_training.py: 1289 → ~800 lines)
-- Better code readability
-- Easier onboarding for new developers
+### 5. **Flexibility**
+- Easy to swap implementations
+- Configure behavior
+- Extend functionality
 
-### 5. **Easier Testing**
-- Each module can be tested independently
-- Mock dependencies more easily
-- Better unit test coverage
+### 6. **Production Ready**
+- Model versioning
+- Health monitoring
+- Automatic retraining detection
+- Comprehensive logging
 
-## Import Changes
+---
 
-### Before (Old Structure):
+## Key Features
+
+### ModelsManager
+✅ 10 pre-configured models  
+✅ Easy enable/disable  
+✅ Timestamped saves  
+✅ Version management  
+✅ Metadata tracking  
+
+### FeaturesGenerator
+✅ Multiple feature methods  
+✅ Flexible target creation  
+✅ 150+ crypto features  
+✅ Classical indicators  
+✅ Automatic preprocessing  
+
+### Trainer
+✅ SMOTE for imbalanced data  
+✅ Threshold optimization  
+✅ Progress tracking  
+✅ Training time measurement  
+✅ Validation support  
+
+### Tester
+✅ Comprehensive metrics  
+✅ Classification reports  
+✅ Confusion matrices  
+✅ Model comparison  
+✅ Detailed analysis  
+
+### HealthManager
+✅ Performance monitoring  
+✅ Age tracking  
+✅ Retraining recommendations  
+✅ Online monitoring  
+✅ Health history  
+✅ Export reports  
+
+---
+
+## Quick Start
+
+### Run the Example
+```bash
+python example_refactored_workflow.py
+```
+
+### Use in Your Code
 ```python
-from src.model_training import train, test
-# Everything was in one file
+from src.ModelsManager import ModelsManager
+from src.FeaturesGeneratorNew import FeaturesGenerator
+from src.Trainer import Trainer
+from src.Tester import Tester
+from src.HealthManager import HealthManager
+
+# Follow the workflow above
 ```
 
-### After (New Structure):
-```python
-# For training
-from src.model_training import train, test
-
-# For model configuration (if needed)
-from src.model_configs import get_model_configs, MODEL_ENABLED_CONFIG
-
-# For evaluation (if needed)
-from src.model_evaluation import find_optimal_threshold, plot_training_comparison
-
-# For data preparation
-from src.data_preparation import prepare_data, fit_scaler_minmax
-```
-
-## Backward Compatibility
-
-✅ **Fully backward compatible!**
-
-All existing code continues to work without changes:
-```python
-from src.model_training import train, test
-
-# This still works exactly as before
-models, scaler, results, best_model = train(df_train)
-results_test = test(models, scaler, df_test)
-```
-
-The refactoring is **internal only** - the public API remains unchanged.
-
-## File Structure
-
-```
-src/
-├── model_training.py       # Core training logic (~800 lines, down from 1289)
-├── model_configs.py        # Model configuration (NEW, ~320 lines)
-├── model_evaluation.py     # Evaluation & visualization (NEW, ~380 lines)
-├── data_preparation.py     # Data preparation (existing, ~100 lines)
-├── model_loader.py         # Model saving/loading (existing)
-├── neural_models.py        # Neural network models (existing)
-├── FeaturesGenerator.py    # Feature engineering (existing)
-├── MLBacktester.py         # Backtesting (existing)
-└── utils.py                # Utilities (existing)
-```
-
-## What Changed in Each Module
-
-### model_training.py Changes:
-**Removed:**
-- `detect_hardware()` → moved to `model_configs.py`
-- `HARDWARE_INFO` → moved to `model_configs.py`
-- `MODEL_ENABLED_CONFIG` → moved to `model_configs.py`
-- `get_model_configs()` → moved to `model_configs.py`
-- `add_neural_network_models()` → moved to `model_configs.py`
-- `find_optimal_threshold()` → moved to `model_evaluation.py`
-- `print_training_results_summary()` → moved to `model_evaluation.py`
-- `print_test_results_summary()` → moved to `model_evaluation.py`
-- `plot_training_comparison()` → moved to `model_evaluation.py`
-- `plot_model_comparison()` → moved to `model_evaluation.py`
-
-**Added:**
-- Imports from new modules
-- Comment explaining the refactoring
-
-**Kept:**
-- `train_and_evaluate_model()` - Core training logic
-- `train()` - Main training function
-- `test()` - Testing function
-- All MLflow integration
-- All SMOTE logic
-- All progress tracking
-- All timestamped saving
-
-## Usage Examples
-
-### Basic Training (No Changes Required):
-```python
-from src.model_training import train
-
-# Works exactly as before
-models, scaler, results, best_model = train(df_train)
-```
-
-### Advanced: Custom Model Configuration:
-```python
-from src.model_configs import MODEL_ENABLED_CONFIG
-
-# View current configuration
-print(MODEL_ENABLED_CONFIG)
-
-# Modify configuration (edit model_configs.py)
-# Then train as usual
-from src.model_training import train
-models, scaler, results, best_model = train(df_train)
-```
-
-### Advanced: Custom Evaluation:
-```python
-from src.model_evaluation import find_optimal_threshold
-
-# Use threshold optimization separately
-threshold, score = find_optimal_threshold(model, X_val, y_val, metric='f1')
-```
-
-### Advanced: Reuse Model Configs:
-```python
-from src.model_configs import get_model_configs
-
-# Get model configurations for another project
-models = get_model_configs(use_gpu=True, n_jobs=-1)
-```
-
-## Testing the Refactoring
-
-To verify everything works correctly:
-
-```python
-# Test basic training
-from src.model_training import train, test
-import pandas as pd
-
-# Load your data
-df = pd.read_csv('your_data.csv')
-
-# Train models (should work exactly as before)
-models, scaler, results, best_model = train(df)
-
-# Test models (should work exactly as before)
-results_test = test(models, scaler, df_test)
-```
+---
 
 ## Migration Guide
 
-**For existing code:** No changes needed! Everything works as before.
-
-**For new code:** You can now import specific components:
-
+### Old Code (model_training.py)
 ```python
-# Option 1: Use the high-level API (recommended)
 from src.model_training import train, test
 
-# Option 2: Use individual components (advanced)
-from src.model_configs import get_model_configs
-from src.model_evaluation import plot_training_comparison
-from src.data_preparation import prepare_data
+models, scaler, results, best = train(df_train)
+test_results = test(models, scaler, df_test)
 ```
 
-## Future Improvements
+### New Code (Class-based)
+```python
+from src.ModelsManager import ModelsManager
+from src.Trainer import Trainer
+from src.Tester import Tester
 
-With this modular structure, future enhancements are easier:
+models_manager = ModelsManager()
+models = models_manager.create_models()
 
-1. **Add new models** - Just update `model_configs.py`
-2. **Add new metrics** - Just update `model_evaluation.py`
-3. **Add new data sources** - Just update `data_preparation.py`
-4. **Improve training logic** - Just update `model_training.py`
+trainer = Trainer()
+trained_models, scaler, results, best = trainer.train(models, X_train, y_train)
 
-Each change is isolated and doesn't affect other modules.
+tester = Tester(scaler=scaler)
+test_results = tester.test(trained_models, X_test, y_test)
+```
+
+**Benefits of new approach:**
+- More explicit
+- More flexible
+- Easier to configure
+- Better for production
+
+---
+
+## Configuration Examples
+
+### Enable/Disable Models
+```python
+models_manager = ModelsManager()
+models_manager.enable_model('knn', enabled=False)
+models_manager.enable_model('xgboost', enabled=True)
+models_manager.print_config()
+```
+
+### Configure Training
+```python
+trainer = Trainer(
+    use_smote=True,           # Apply SMOTE
+    optimize_threshold=True,  # Optimize threshold
+    use_scaler=True          # Scale features
+)
+```
+
+### Configure Health Monitoring
+```python
+health_manager = HealthManager(
+    performance_threshold=0.05,  # 5% max degradation
+    time_threshold_days=30       # Retrain after 30 days
+)
+```
+
+---
+
+## Integration with Existing Code
+
+The new classes work alongside existing code:
+
+**Existing modules still available:**
+- `src/model_training.py` - Original training functions
+- `src/FeaturesGenerator.py` - Original feature generator
+- `src/data_preparation.py` - Data preparation
+- `src/MLBacktester.py` - Backtesting
+- All other modules
+
+**New classes add:**
+- Better organization
+- More flexibility
+- Health monitoring
+- Model versioning
+
+---
+
+## Next Steps
+
+1. **Try the example:**
+   ```bash
+   python example_refactored_workflow.py
+   ```
+
+2. **Read the documentation:**
+   - `docs/REFACTORED_ARCHITECTURE.md` - Complete guide
+
+3. **Integrate into your workflow:**
+   - Replace old code gradually
+   - Or use alongside existing code
+
+4. **Set up health monitoring:**
+   - Monitor model performance
+   - Get retraining alerts
+
+5. **Enjoy cleaner code! 🚀**
+
+---
 
 ## Summary
 
-✅ **Refactoring Complete**
-- 3 new focused modules created
-- ~400 lines moved from model_training.py
-- Better organization and maintainability
-- Fully backward compatible
-- No breaking changes
-- Easier to extend and test
+✅ **5 new classes** for clean architecture  
+✅ **Complete workflow** from data to deployment  
+✅ **Health monitoring** for production  
+✅ **Model versioning** for tracking  
+✅ **Comprehensive docs** for easy adoption  
+✅ **Example script** to get started  
+✅ **Backward compatible** with existing code  
 
-The refactoring follows the **Single Responsibility Principle** - each module has one clear purpose, making the codebase more professional and maintainable.
+**Total:** ~2,300 lines of production-ready code and documentation!
+
+For detailed information, see `docs/REFACTORED_ARCHITECTURE.md`

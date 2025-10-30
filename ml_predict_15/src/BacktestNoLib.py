@@ -14,7 +14,7 @@ from datetime import datetime
 from tqdm import tqdm
 
 
-class MLBacktester:
+class BacktestNoLib:
     """
     Backtester that uses ML model predictions as trading signals.
     Supports trailing stop loss and various position sizing strategies.

@@ -1,5 +1,6 @@
 *$py.class
 *.egg
+*.csv
 *.egg-info/
 *.log
 *.manifest
@@ -74,3 +75,13 @@ wheels/
 *.db
 *_old_*
 data_server/mlartifacts/
+
+ml_predict_15/output/
+
+ml_predict_15/reports/
+
+old/*
+
+ml_predict_15/old/
+
+ml_predict_15/src/old/
