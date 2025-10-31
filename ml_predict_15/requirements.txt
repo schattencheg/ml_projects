@@ -1,6 +1,6 @@
 pandas
 # Core Data Science Libraries
-numpy>=2.3.0
+numpy<2.0
 pandas>=2.3.0
 scikit-learn>=1.7.0
 matplotlib>=3.10.0

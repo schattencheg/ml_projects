@@ -758,10 +758,13 @@ class BacktestBase(ABC):
         ax.set_xlabel('Month')
         ax.set_ylabel('Year')
         
-        # Set month labels
+        # Set month labels - only for months that exist in the data
         month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        ax.set_xticklabels(month_labels)
+        # Get the actual months present in the data
+        actual_months = sorted(heatmap_data.columns)
+        actual_month_labels = [month_labels[m-1] for m in actual_months]
+        ax.set_xticklabels(actual_month_labels)
         
         plt.tight_layout()
         
