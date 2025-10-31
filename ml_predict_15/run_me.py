@@ -14,7 +14,8 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-import mplfinance as mpf
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime
 
 # Import new classes
@@ -178,7 +179,7 @@ def _create_models_comparison_plot(all_results, all_equity_curves):
 
 def _create_ohlc_with_trades_plot(df_ohlc, trades_df, model_name):
     """
-    Create OHLC candlestick chart with trade entry and exit markers.
+    Create interactive Plotly OHLC candlestick chart with trade entry and exit markers.
     
     Parameters:
     -----------
@@ -188,139 +189,183 @@ def _create_ohlc_with_trades_plot(df_ohlc, trades_df, model_name):
         DataFrame with trades (must have: entry_time, exit_time, entry_price, exit_price, net_pnl)
     model_name : str
         Name of the model for the title
+        
+    Returns:
+    --------
+    str : Path to saved HTML file
     """
     if df_ohlc is None or len(df_ohlc) == 0:
         print("⚠ No OHLC data to plot")
-        return
+        return None
     
     if trades_df is None or len(trades_df) == 0:
         print("⚠ No trades to plot")
-        return
+        return None
     
-    # Prepare OHLC data for mplfinance
+    # Prepare data
     df_plot = df_ohlc.copy()
     
-    # Ensure timestamp is datetime and set as index
-    if 'timestamp' in df_plot.columns:
+    # Ensure timestamp column
+    if 'timestamp' not in df_plot.columns:
+        if isinstance(df_plot.index, pd.DatetimeIndex):
+            df_plot['timestamp'] = df_plot.index
+        else:
+            df_plot['timestamp'] = pd.to_datetime(df_plot.index)
+    else:
         df_plot['timestamp'] = pd.to_datetime(df_plot['timestamp'])
-        df_plot.set_index('timestamp', inplace=True)
-    elif not isinstance(df_plot.index, pd.DatetimeIndex):
-        df_plot.index = pd.to_datetime(df_plot.index)
     
-    # Ensure column names are capitalized for mplfinance
-    column_mapping = {
-        'open': 'Open',
-        'high': 'High',
-        'low': 'Low',
-        'close': 'Close',
-        'volume': 'Volume'
-    }
+    # Ensure lowercase column names
+    df_plot.columns = [col.lower() for col in df_plot.columns]
     
-    for old_col, new_col in column_mapping.items():
-        if old_col in df_plot.columns:
-            df_plot.rename(columns={old_col: new_col}, inplace=True)
+    # Create subplots: candlestick + volume
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.03,
+        row_heights=[0.7, 0.3],
+        subplot_titles=(f'OHLC Chart with Trades - {model_name.replace("_", " ").title()}', 'Volume')
+    )
+    
+    # Add candlestick chart
+    fig.add_trace(
+        go.Candlestick(
+            x=df_plot['timestamp'],
+            open=df_plot['open'],
+            high=df_plot['high'],
+            low=df_plot['low'],
+            close=df_plot['close'],
+            name='OHLC',
+            increasing_line_color='green',
+            decreasing_line_color='red'
+        ),
+        row=1, col=1
+    )
+    
+    # Add volume bars
+    colors = ['red' if df_plot['close'].iloc[i] < df_plot['open'].iloc[i] else 'green' 
+              for i in range(len(df_plot))]
+    fig.add_trace(
+        go.Bar(
+            x=df_plot['timestamp'],
+            y=df_plot['volume'],
+            name='Volume',
+            marker_color=colors,
+            showlegend=False
+        ),
+        row=2, col=1
+    )
     
     # Prepare trade markers
-    entry_markers = []
-    exit_markers = []
+    entry_times = []
+    entry_prices = []
+    exit_win_times = []
+    exit_win_prices = []
+    exit_loss_times = []
+    exit_loss_prices = []
     
     for _, trade in trades_df.iterrows():
         entry_time = pd.to_datetime(trade['entry_time'])
         exit_time = pd.to_datetime(trade['exit_time'])
+        entry_price = trade['entry_price']
+        exit_price = trade['exit_price']
+        is_win = trade.get('net_pnl', 0) > 0
         
-        # Find closest timestamps in OHLC data
-        if entry_time in df_plot.index:
-            entry_price = trade['entry_price']
-            entry_markers.append((entry_time, entry_price))
+        entry_times.append(entry_time)
+        entry_prices.append(entry_price)
         
-        if exit_time in df_plot.index:
-            exit_price = trade['exit_price']
-            is_win = trade.get('net_pnl', 0) > 0
-            exit_markers.append((exit_time, exit_price, is_win))
+        if is_win:
+            exit_win_times.append(exit_time)
+            exit_win_prices.append(exit_price)
+        else:
+            exit_loss_times.append(exit_time)
+            exit_loss_prices.append(exit_price)
     
-    # Create additional plots for markers
-    apds = []
-    
-    # Entry markers (green triangles pointing up)
-    if entry_markers:
-        entry_times = [m[0] for m in entry_markers]
-        entry_prices = [m[1] for m in entry_markers]
-        entry_scatter = mpf.make_addplot(
-            pd.Series([np.nan] * len(df_plot), index=df_plot.index),
-            type='scatter',
-            markersize=100,
-            marker='^',
-            color='green',
-            secondary_y=False
-        )
-        # Add entry points manually
-        for time, price in entry_markers:
-            if time in df_plot.index:
-                idx = df_plot.index.get_loc(time)
-                entry_data = pd.Series([np.nan] * len(df_plot), index=df_plot.index)
-                entry_data.iloc[idx] = price
-                apds.append(mpf.make_addplot(entry_data, type='scatter', markersize=100, 
-                                            marker='^', color='lime', secondary_y=False))
-    
-    # Exit markers (red for losses, blue for wins)
-    for time, price, is_win in exit_markers:
-        if time in df_plot.index:
-            idx = df_plot.index.get_loc(time)
-            exit_data = pd.Series([np.nan] * len(df_plot), index=df_plot.index)
-            exit_data.iloc[idx] = price
-            color = 'dodgerblue' if is_win else 'red'
-            apds.append(mpf.make_addplot(exit_data, type='scatter', markersize=100,
-                                        marker='v', color=color, secondary_y=False))
-    
-    # Create the plot
-    fig, axes = mpf.plot(
-        df_plot,
-        type='candle',
-        style='charles',
-        title=f'OHLC Chart with Trades - {model_name.replace("_", " ").title()}',
-        ylabel='Price',
-        volume=True,
-        addplot=apds if apds else None,
-        figsize=(16, 10),
-        returnfig=True,
-        warn_too_much_data=len(df_plot) + 1  # Suppress warning
+    # Add entry markers
+    fig.add_trace(
+        go.Scatter(
+            x=entry_times,
+            y=entry_prices,
+            mode='markers',
+            name='Entry',
+            marker=dict(
+                symbol='triangle-up',
+                size=12,
+                color='lime',
+                line=dict(color='darkgreen', width=1)
+            )
+        ),
+        row=1, col=1
     )
     
-    # Add legend
-    ax = axes[0]
-    from matplotlib.patches import Patch
-    from matplotlib.lines import Line2D
+    # Add exit markers (wins)
+    if exit_win_times:
+        fig.add_trace(
+            go.Scatter(
+                x=exit_win_times,
+                y=exit_win_prices,
+                mode='markers',
+                name='Exit (Win)',
+                marker=dict(
+                    symbol='triangle-down',
+                    size=12,
+                    color='dodgerblue',
+                    line=dict(color='darkblue', width=1)
+                )
+            ),
+            row=1, col=1
+        )
     
-    legend_elements = [
-        Line2D([0], [0], marker='^', color='w', markerfacecolor='lime', 
-               markersize=10, label='Entry'),
-        Line2D([0], [0], marker='v', color='w', markerfacecolor='dodgerblue',
-               markersize=10, label='Exit (Win)'),
-        Line2D([0], [0], marker='v', color='w', markerfacecolor='red',
-               markersize=10, label='Exit (Loss)')
-    ]
-    ax.legend(handles=legend_elements, loc='upper left', fontsize=10)
+    # Add exit markers (losses)
+    if exit_loss_times:
+        fig.add_trace(
+            go.Scatter(
+                x=exit_loss_times,
+                y=exit_loss_prices,
+                mode='markers',
+                name='Exit (Loss)',
+                marker=dict(
+                    symbol='triangle-down',
+                    size=12,
+                    color='red',
+                    line=dict(color='darkred', width=1)
+                )
+            ),
+            row=1, col=1
+        )
     
-    # Add trade statistics text
+    # Calculate statistics
     total_trades = len(trades_df)
     winning_trades = len(trades_df[trades_df['net_pnl'] > 0])
     win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
     
-    stats_text = f'Total Trades: {total_trades}  |  Wins: {winning_trades}  |  Win Rate: {win_rate:.1f}%'
-    ax.text(0.5, 0.98, stats_text, transform=ax.transAxes,
-           fontsize=11, verticalalignment='top', horizontalalignment='center',
-           bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    # Update layout
+    fig.update_layout(
+        title=dict(
+            text=f'{model_name.replace("_", " ").title()}<br><sub>Trades: {total_trades} | Wins: {winning_trades} | Win Rate: {win_rate:.1f}%</sub>',
+            x=0.5,
+            xanchor='center'
+        ),
+        xaxis_rangeslider_visible=False,
+        height=800,
+        hovermode='x unified',
+        template='plotly_white'
+    )
     
-    # Save plot
+    # Update axes
+    fig.update_xaxes(title_text="Date", row=2, col=1)
+    fig.update_yaxes(title_text="Price", row=1, col=1)
+    fig.update_yaxes(title_text="Volume", row=2, col=1)
+    
+    # Save as HTML
     output_dir = 'backtest_results'
     os.makedirs(output_dir, exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filepath = os.path.join(output_dir, f'ohlc_trades_{model_name}_{timestamp}.png')
-    fig.savefig(filepath, dpi=300, bbox_inches='tight')
-    print(f"  ✓ OHLC chart saved to: {filepath}")
+    filepath = os.path.join(output_dir, f'ohlc_trades_{model_name}_{timestamp}.html')
+    fig.write_html(filepath)
+    fig.show()
+    print(f"  ✓ Interactive OHLC chart saved to: {filepath}")
     
-    plt.close(fig)
-
+    return filepath
 
 def main_train(features_method='crypto'):
     """Main execution function."""
@@ -585,6 +630,7 @@ def main_backtest(features_method='crypto'):
     # Store results for all models
     all_results = {}
     all_equity_curves = {}
+    plots_per_model = True
     
     for i, (model_name, model) in enumerate(models.items(), 1):
         print(f"\n{'='*80}")
@@ -603,6 +649,10 @@ def main_backtest(features_method='crypto'):
             plot = False,  # Disable plotting to avoid memory issues
             printlog = False
         )
+        
+        # Add model name and trades to results
+        results['model_name'] = model_name
+        results['trades'] = trades
         
         # Store results
         all_results[model_name] = results
@@ -640,16 +690,30 @@ def main_backtest(features_method='crypto'):
         
         # Create visualizations
         print(f"\nCreating visualizations for {model_name}...")
-        backtester.create_comprehensive_visualizations(trades)
-        
+        if plots_per_model:
+            backtester.create_comprehensive_visualizations(results, df=df_test_features, show_plots=True, model_name=model_name)
+            
         # Create OHLC chart with trades
-        _create_ohlc_with_trades_plot(df_test_features, trades, model_name)
+        ohlc_filepath = _create_ohlc_with_trades_plot(df_test_features, trades, model_name)
+        if ohlc_filepath:
+            print(f"  ✓ OHLC chart created successfully")
     
     # Create final comparison plot
     print(f"\n{'='*80}")
     print(f"CREATING FINAL COMPARISON PLOT")
     print(f"{'='*80}")
     _create_models_comparison_plot(all_results, all_equity_curves)
+    
+    # Completion message
+    print(f"\n{'='*80}")
+    print(f"BACKTEST COMPLETE")
+    print(f"{'='*80}")
+    print(f"\n✓ All backtests completed successfully!")
+    print(f"\nResults saved to: backtest_results/")
+    print(f"  - Interactive OHLC charts (HTML): Open in browser")
+    print(f"  - Analysis charts (PNG): View with image viewer")
+    print(f"  - Model comparison plot (PNG): Final comparison")
+    print(f"{'='*80}")
 
 
 if __name__ == "__main__":

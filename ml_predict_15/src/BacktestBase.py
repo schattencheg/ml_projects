@@ -422,10 +422,11 @@ class BacktestBase(ABC):
         results: Dict, 
         df: pd.DataFrame = None,
         save_dir: Optional[str] = None,
-        show_plots: bool = True
+        show_plots: bool = True,
+        model_name: Optional[str] = None
     ) -> Dict[str, str]:
         """
-        Create comprehensive visualization suite.
+        Create comprehensive visualization suite in a single interactive HTML.
         
         Parameters:
         -----------
@@ -442,6 +443,439 @@ class BacktestBase(ABC):
         --------
         saved_files : Dict[str, str]
             Dictionary of plot names and their file paths
+        """
+        try:
+            import plotly.graph_objects as go
+            from plotly.subplots import make_subplots
+            import plotly.express as px
+            import webbrowser
+            import os
+        except ImportError:
+            print("⚠ Plotly not installed. Falling back to matplotlib.")
+            return self._create_comprehensive_visualizations_matplotlib(results, df, save_dir, show_plots)
+        
+        saved_files = {}
+        
+        if save_dir:
+            Path(save_dir).mkdir(parents=True, exist_ok=True)
+        else:
+            save_dir = 'backtest_results'
+            Path(save_dir).mkdir(parents=True, exist_ok=True)
+        
+        # Create figure with subplots (4 rows x 3 columns = 12 plots)
+        fig = make_subplots(
+            rows=4, cols=3,
+            subplot_titles=(
+                'Equity Curve',
+                'Drawdown (Underwater)',
+                'Daily Returns Distribution',
+                'Cumulative P&L by Trade',
+                'Win/Loss Distribution',
+                'P&L vs Holding Period',
+                'Monthly P&L',
+                'Trade Duration Box Plot',
+                'Rolling Sharpe Ratio',
+                'Rolling Volatility',
+                'Trade P&L Distribution',
+                'Monthly Returns Heatmap'
+            ),
+            specs=[
+                [{'type': 'scatter'}, {'type': 'scatter'}, {'type': 'histogram'}],
+                [{'type': 'scatter'}, {'type': 'histogram'}, {'type': 'scatter'}],
+                [{'type': 'bar'}, {'type': 'box'}, {'type': 'scatter'}],
+                [{'type': 'scatter'}, {'type': 'histogram'}, {'type': 'heatmap'}]
+            ],
+            vertical_spacing=0.08,
+            horizontal_spacing=0.10
+        )
+        
+        # Extract data from results or self
+        equity_curve = results.get('equity_curve', self.equity_curve if hasattr(self, 'equity_curve') else None)
+        trades = results.get('trades', self.trades if hasattr(self, 'trades') else None)
+        
+        # Debug output
+        equity_available = False
+        trades_available = False
+        
+        if equity_curve is not None:
+            try:
+                equity_len = len(equity_curve)
+                equity_available = equity_len > 0
+                if equity_available:
+                    print(f"  Debug - Equity curve points: {equity_len}")
+            except:
+                equity_available = False
+        
+        if trades is not None:
+            try:
+                trades_len = len(trades)
+                trades_available = trades_len > 0
+                if trades_available:
+                    print(f"  Debug - Number of trades: {trades_len}")
+                    # Show available columns
+                    trades_df_temp = pd.DataFrame(trades)
+                    print(f"  Debug - Trades columns: {list(trades_df_temp.columns)}")
+            except:
+                trades_available = False
+        
+        print(f"  Debug - Equity curve available: {equity_available}")
+        print(f"  Debug - Trades available: {trades_available}")
+        
+        # 1. Equity Curve
+        if equity_curve is not None and equity_available:
+            equity_df = pd.DataFrame(equity_curve)
+            fig.add_trace(
+                go.Scatter(
+                    x=equity_df['timestamp'],
+                    y=equity_df['equity'],
+                    mode='lines',
+                    name='Equity',
+                    line=dict(color='blue', width=2),
+                    fill='tozeroy',
+                    fillcolor='rgba(0,100,255,0.2)'
+                ),
+                row=1, col=1
+            )
+            
+            # Add initial capital line
+            initial_capital = results.get('initial_capital', 10000)
+            fig.add_hline(
+                y=initial_capital,
+                line_dash="dash",
+                line_color="gray",
+                annotation_text="Initial Capital",
+                row=1, col=1
+            )
+        
+        # 2. Drawdown (Underwater)
+        if equity_curve is not None and equity_available:
+            equity_df = pd.DataFrame(equity_curve)
+            peak = equity_df['equity'].expanding().max()
+            drawdown = ((equity_df['equity'] - peak) / peak * 100)
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=equity_df['timestamp'],
+                    y=drawdown,
+                    mode='lines',
+                    name='Drawdown',
+                    line=dict(color='red', width=2),
+                    fill='tozeroy',
+                    fillcolor='rgba(255,0,0,0.2)'
+                ),
+                row=1, col=2
+            )
+        
+        # 3. Daily Returns Distribution
+        if equity_curve is not None and equity_available:
+            equity_df = pd.DataFrame(equity_curve)
+            returns = equity_df['equity'].pct_change().dropna() * 100
+            
+            fig.add_trace(
+                go.Histogram(
+                    x=returns,
+                    name='Returns',
+                    marker_color='skyblue',
+                    nbinsx=50
+                ),
+                row=1, col=3
+            )
+            
+            # Add mean line
+            mean_return = returns.mean()
+            fig.add_vline(
+                x=mean_return,
+                line_dash="dash",
+                line_color="red",
+                annotation_text=f"Mean: {mean_return:.2f}%",
+                row=1, col=3
+            )
+        
+        # 4. Cumulative P&L by Trade
+        if trades is not None and trades_available:
+            trades_df = pd.DataFrame(trades)
+            cumulative_pnl = trades_df['net_pnl'].cumsum()
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=list(range(len(cumulative_pnl))),
+                    y=cumulative_pnl,
+                    mode='lines+markers',
+                    name='Cumulative P&L',
+                    line=dict(color='blue', width=2),
+                    marker=dict(size=4)
+                ),
+                row=2, col=1
+            )
+        
+        # 5. Win/Loss Distribution (Histogram)
+        if trades is not None and trades_available:
+            trades_df = pd.DataFrame(trades)
+            wins = trades_df[trades_df['net_pnl'] > 0]['net_pnl']
+            losses = trades_df[trades_df['net_pnl'] <= 0]['net_pnl']
+            
+            fig.add_trace(
+                go.Histogram(
+                    x=wins,
+                    name='Wins',
+                    marker_color='green',
+                    opacity=0.7,
+                    nbinsx=20
+                ),
+                row=2, col=2
+            )
+            
+            fig.add_trace(
+                go.Histogram(
+                    x=losses,
+                    name='Losses',
+                    marker_color='red',
+                    opacity=0.7,
+                    nbinsx=20
+                ),
+                row=2, col=2
+            )
+        
+        # 6. P&L vs Holding Period (Scatter)
+        if trades is not None and trades_available:
+            trades_df = pd.DataFrame(trades)
+            
+            # Calculate duration_bars if not present
+            if 'duration_bars' not in trades_df.columns:
+                if 'entry_time' in trades_df.columns and 'exit_time' in trades_df.columns:
+                    trades_df['entry_time'] = pd.to_datetime(trades_df['entry_time'])
+                    trades_df['exit_time'] = pd.to_datetime(trades_df['exit_time'])
+                    # Estimate bars (assuming 1 bar = 1 hour for hourly data)
+                    trades_df['duration_bars'] = (trades_df['exit_time'] - trades_df['entry_time']).dt.total_seconds() / 3600
+                elif 'bars_held' in trades_df.columns:
+                    trades_df['duration_bars'] = trades_df['bars_held']
+            
+            if 'duration_bars' in trades_df.columns and len(trades_df['duration_bars'].dropna()) > 0:
+                fig.add_trace(
+                    go.Scatter(
+                        x=trades_df['duration_bars'],
+                        y=trades_df['net_pnl'],
+                        mode='markers',
+                        name='Trades',
+                        marker=dict(
+                            color=trades_df['net_pnl'],
+                            colorscale='RdYlGn',
+                            size=8,
+                            opacity=0.6,
+                            colorbar=dict(title='P&L')
+                        )
+                    ),
+                    row=2, col=3
+                )
+            else:
+                print(f"  ⚠ Skipping P&L vs Holding Period plot - duration data not available")
+        
+        # 7. Monthly P&L (Bar Chart)
+        if trades is not None and trades_available:
+            trades_df = pd.DataFrame(trades)
+            if 'exit_time' in trades_df.columns:
+                trades_df['exit_time'] = pd.to_datetime(trades_df['exit_time'])
+                trades_df['month'] = trades_df['exit_time'].dt.month
+                monthly_pnl = trades_df.groupby('month')['net_pnl'].sum()
+                
+                colors = ['green' if x > 0 else 'red' for x in monthly_pnl.values]
+                fig.add_trace(
+                    go.Bar(
+                        x=monthly_pnl.index,
+                        y=monthly_pnl.values,
+                        marker_color=colors,
+                        name='Monthly P&L',
+                        text=[f'${x:.0f}' for x in monthly_pnl.values],
+                        textposition='auto'
+                    ),
+                    row=3, col=1
+                )
+        
+        # 8. Trade Duration Box Plot
+        if trades is not None and trades_available:
+            trades_df = pd.DataFrame(trades)
+            
+            # Calculate duration_bars if not present (same logic as above)
+            if 'duration_bars' not in trades_df.columns:
+                if 'entry_time' in trades_df.columns and 'exit_time' in trades_df.columns:
+                    trades_df['entry_time'] = pd.to_datetime(trades_df['entry_time'])
+                    trades_df['exit_time'] = pd.to_datetime(trades_df['exit_time'])
+                    trades_df['duration_bars'] = (trades_df['exit_time'] - trades_df['entry_time']).dt.total_seconds() / 3600
+                elif 'bars_held' in trades_df.columns:
+                    trades_df['duration_bars'] = trades_df['bars_held']
+            
+            if 'duration_bars' in trades_df.columns and len(trades_df['duration_bars'].dropna()) > 0:
+                fig.add_trace(
+                    go.Box(
+                        y=trades_df['duration_bars'],
+                        name='Duration',
+                        marker_color='orange',
+                        boxmean='sd'
+                    ),
+                    row=3, col=2
+                )
+            else:
+                print(f"  ⚠ Skipping Trade Duration Box Plot - duration data not available")
+        
+        # 9. Rolling Sharpe Ratio
+        if equity_curve is not None and equity_available:
+            equity_df = pd.DataFrame(equity_curve)
+            equity_df['returns'] = equity_df['equity'].pct_change()
+            window = min(30, len(equity_df) // 4)
+            
+            if window > 1:
+                rolling_sharpe = (equity_df['returns'].rolling(window).mean() / 
+                                equity_df['returns'].rolling(window).std() * np.sqrt(252))
+                
+                fig.add_trace(
+                    go.Scatter(
+                        x=equity_df['timestamp'],
+                        y=rolling_sharpe,
+                        mode='lines',
+                        name=f'Sharpe ({window}d)',
+                        line=dict(color='purple', width=2)
+                    ),
+                    row=3, col=3
+                )
+        
+        # 10. Rolling Volatility
+        if equity_curve is not None and equity_available:
+            equity_df = pd.DataFrame(equity_curve)
+            if 'returns' not in equity_df.columns:
+                equity_df['returns'] = equity_df['equity'].pct_change()
+            window = min(30, len(equity_df) // 4)
+            
+            if window > 1:
+                rolling_vol = equity_df['returns'].rolling(window).std() * np.sqrt(252) * 100
+                
+                fig.add_trace(
+                    go.Scatter(
+                        x=equity_df['timestamp'],
+                        y=rolling_vol,
+                        mode='lines',
+                        name=f'Volatility ({window}d)',
+                        line=dict(color='orange', width=2)
+                    ),
+                    row=4, col=1
+                )
+        
+        # 11. Trade P&L Distribution (Overall)
+        if trades is not None and trades_available:
+            trades_df = pd.DataFrame(trades)
+            fig.add_trace(
+                go.Histogram(
+                    x=trades_df['net_pnl'],
+                    name='P&L Distribution',
+                    marker_color='steelblue',
+                    nbinsx=30
+                ),
+                row=4, col=2
+            )
+            
+            # Add vertical line at zero
+            fig.add_vline(
+                x=0,
+                line_dash="dash",
+                line_color="black",
+                row=4, col=2
+            )
+        
+        # 12. Monthly Returns Heatmap
+        if trades is not None and trades_available:
+            trades_df = pd.DataFrame(trades)
+            if 'exit_time' in trades_df.columns:
+                trades_df['exit_time'] = pd.to_datetime(trades_df['exit_time'])
+                trades_df['year'] = trades_df['exit_time'].dt.year
+                trades_df['month'] = trades_df['exit_time'].dt.month
+                
+                # Group by year and month
+                monthly_returns = trades_df.groupby(['year', 'month'])['net_pnl'].sum().reset_index()
+                
+                # Pivot for heatmap
+                heatmap_data = monthly_returns.pivot(index='year', columns='month', values='net_pnl')
+                heatmap_data = heatmap_data.fillna(0)
+                
+                fig.add_trace(
+                    go.Heatmap(
+                        z=heatmap_data.values,
+                        x=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][:len(heatmap_data.columns)],
+                        y=heatmap_data.index,
+                        colorscale='RdYlGn',
+                        zmid=0,
+                        name='Monthly Returns',
+                        colorbar=dict(title='P&L')
+                    ),
+                    row=4, col=3
+                )
+        
+        # Update layout
+        fig.update_layout(
+            title=dict(
+                text=f'Comprehensive Backtest Analysis ({model_name})<br><sub>Total Return: {results.get("total_return_pct", 0):.2f}% | Win Rate: {results.get("win_rate", 0):.1f}% | Sharpe: {results.get("sharpe_ratio", 0):.2f}</sub>',
+                x=0.5,
+                xanchor='center'
+            ),
+            height=1600,
+            showlegend=True,
+            template='plotly_white'
+        )
+        
+        # Update axes labels for all subplots
+        # Row 1
+        fig.update_xaxes(title_text="Date", row=1, col=1)
+        fig.update_yaxes(title_text="Equity ($)", row=1, col=1)
+        fig.update_xaxes(title_text="Date", row=1, col=2)
+        fig.update_yaxes(title_text="Drawdown (%)", row=1, col=2)
+        fig.update_xaxes(title_text="Daily Return (%)", row=1, col=3)
+        fig.update_yaxes(title_text="Frequency", row=1, col=3)
+        
+        # Row 2
+        fig.update_xaxes(title_text="Trade Number", row=2, col=1)
+        fig.update_yaxes(title_text="Cumulative P&L ($)", row=2, col=1)
+        fig.update_xaxes(title_text="P&L ($)", row=2, col=2)
+        fig.update_yaxes(title_text="Frequency", row=2, col=2)
+        fig.update_xaxes(title_text="Holding Period (bars)", row=2, col=3)
+        fig.update_yaxes(title_text="P&L ($)", row=2, col=3)
+        
+        # Row 3
+        fig.update_xaxes(title_text="Month", row=3, col=1)
+        fig.update_yaxes(title_text="P&L ($)", row=3, col=1)
+        fig.update_yaxes(title_text="Duration (bars)", row=3, col=2)
+        fig.update_xaxes(title_text="Date", row=3, col=3)
+        fig.update_yaxes(title_text="Sharpe Ratio", row=3, col=3)
+        
+        # Row 4
+        fig.update_xaxes(title_text="Date", row=4, col=1)
+        fig.update_yaxes(title_text="Volatility (%)", row=4, col=1)
+        fig.update_xaxes(title_text="P&L ($)", row=4, col=2)
+        fig.update_yaxes(title_text="Frequency", row=4, col=2)
+        fig.update_xaxes(title_text="Month", row=4, col=3)
+        fig.update_yaxes(title_text="Year", row=4, col=3)
+        
+        # Save HTML
+        timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+        model_name = results.get('model_name', 'backtest')
+        filepath = Path(save_dir) / f'comprehensive_analysis_{model_name}_{timestamp}.html'
+        fig.write_html(str(filepath))
+        saved_files['comprehensive'] = str(filepath)
+        
+        print(f"  ✓ Comprehensive analysis saved to: {filepath}")
+        
+        # Open in browser
+        if show_plots:
+            webbrowser.open('file://' + os.path.abspath(str(filepath)))
+        
+        return saved_files
+    
+    def _create_comprehensive_visualizations_matplotlib(
+        self,
+        results: Dict,
+        df: pd.DataFrame = None,
+        save_dir: Optional[str] = None,
+        show_plots: bool = True
+    ) -> Dict[str, str]:
+        """
+        Fallback matplotlib version of comprehensive visualizations.
         """
         saved_files = {}
         
