@@ -176,7 +176,6 @@ def _create_models_comparison_plot(all_results, all_equity_curves):
     plt.show()
     plt.close()
 
-
 def _create_ohlc_with_trades_plot(df_ohlc, trades_df, model_name):
     """
     Create interactive Plotly OHLC candlestick chart with trade entry and exit markers.
@@ -623,15 +622,15 @@ def main_backtest(features_method='crypto'):
     print(f"RUNNING BACKTESTS FOR {len(models)} MODELS")
     print(f"{'='*80}\n")
     
-    #backtester = BacktestBacktraderML()
-    backtester = BacktestNoLib()
+    backtester = BacktestBacktraderML(initial_cash=1000000)
+    #backtester = BacktestNoLib()
     #backtester = BacktestBacktestingML()
     
     # Store results for all models
     all_results = {}
     all_equity_curves = {}
     plots_per_model = True
-    
+    models = {'logistic_regression': models['logistic_regression']}
     for i, (model_name, model) in enumerate(models.items(), 1):
         print(f"\n{'='*80}")
         print(f"BACKTEST {i}/{len(models)}: {model_name.upper()}")
@@ -645,9 +644,9 @@ def main_backtest(features_method='crypto'):
             probability_threshold = 0.6,
             trailing_stop_pct = 2.0,
             take_profit_pct = None,
-            position_size_pct = 1.0,
+            position_size_pct = 0.9,
             plot = False,  # Disable plotting to avoid memory issues
-            printlog = False
+            printlog = True
         )
         
         # Add model name and trades to results

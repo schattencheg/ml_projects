@@ -54,16 +54,36 @@ class BacktestBacktrader(bt.Strategy):
         # Track trades
         self.trades_list = []
         
+        # Debug counters
+        self.signal_count = 0
+        self.entry_attempt_count = 0
+        self.bar_count = 0
+        
     def log(self, txt, dt=None):
         """Logging function for strategy."""
         if self.params.printlog:
-            dt = dt or self.datas[0].datetime.date(0)
+            dt = dt or bt.num2date(self.datas[0].datetime[0]).date()
             print(f'{dt.isoformat()} {txt}')
     
     def notify_order(self, order):
         """
         Called when an order is completed.
         """
+        # Debug: Log ALL order status changes
+        status_names = {
+            order.Created: 'Created',
+            order.Submitted: 'Submitted',
+            order.Accepted: 'Accepted',
+            order.Partial: 'Partial',
+            order.Completed: 'Completed',
+            order.Canceled: 'Canceled',
+            order.Expired: 'Expired',
+            order.Margin: 'Margin',
+            order.Rejected: 'Rejected'
+        }
+        self.log(f'ORDER STATUS: {status_names.get(order.status, "Unknown")} - '
+                f'Type: {"BUY" if order.isbuy() else "SELL"}')
+        
         if order.status in [order.Submitted, order.Accepted]:
             return
         
@@ -79,7 +99,11 @@ class BacktestBacktrader(bt.Strategy):
                         f'Cost: {order.executed.value:.2f}, Comm: {order.executed.comm:.2f}')
         
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
-            self.log('Order Canceled/Margin/Rejected')
+            self.log(f'Order Canceled/Margin/Rejected - Status: {status_names.get(order.status, "Unknown")}')
+            if order.status == order.Margin:
+                self.log(f'  MARGIN ISSUE: Not enough cash! Cash: ${self.broker.getcash():.2f}')
+            elif order.status == order.Rejected:
+                self.log(f'  REJECTED: Order was rejected by broker')
         
         self.order = None
     
@@ -113,8 +137,14 @@ class BacktestBacktrader(bt.Strategy):
         Called for each bar in the backtest.
         Implements the trading logic.
         """
+        # Debug: Count bars
+        self.bar_count += 1
+        if self.bar_count <= 5 or self.bar_count % 100 == 0:
+            self.log(f'Processing bar {self.bar_count}')
+        
         # Check if an order is pending
         if self.order:
+            self.log(f'Order pending, waiting...')
             return
         
         # Get current values
@@ -132,8 +162,13 @@ class BacktestBacktrader(bt.Strategy):
             size = self._calculate_position_size(current_price)
             
             # Enter long position
+            self.entry_attempt_count += 1
             self.log(f'BUY CREATE, Price: {current_price:.2f}, Size: {size:.2f}, Prob: {probability:.2f}')
             self.order = self.buy(size=size)
+        
+        # Debug: Count signals
+        if signal == 1:
+            self.signal_count += 1
     
     def _check_exit_conditions(self, current_price: float, signal: float):
         """
@@ -189,13 +224,28 @@ class BacktestBacktrader(bt.Strategy):
         size : float
             Number of units to buy
         """
-        cash_to_use = self.broker.getcash() * self.params.position_size_pct
+        available_cash = self.broker.getcash()
+        cash_to_use = available_cash * self.params.position_size_pct
         size = cash_to_use / price
+        
+        # Debug logging
+        self.log(f'Position Sizing: Cash=${available_cash:.2f}, Use={self.params.position_size_pct*100:.1f}%, '
+                f'Amount=${cash_to_use:.2f}, Price=${price:.2f}, Size={size:.6f}')
+        
+        if size < 0.001:
+            self.log(f'WARNING: Position size {size:.6f} is very small! May fail to execute.')
+        
         return size
     
     def stop(self):
         """Called at the end of the backtest."""
         self.log(f'Final Portfolio Value: {self.broker.getvalue():.2f}', dt=self.datas[0].datetime.date(0))
+        print(f"\nStrategy Debug Info:")
+        print(f"  Total bars processed: {self.bar_count}")
+        print(f"  Total buy signals (1): {self.signal_count}")
+        print(f"  Entry attempts (signal + prob >= threshold): {self.entry_attempt_count}")
+        print(f"  Actual trades executed: {len(self.trades_list)}")
+        print(f"  Probability threshold: {self.params.probability_threshold}")
 
 
 class MLPandasData(bt.feeds.PandasData):
@@ -211,7 +261,7 @@ class MLPandasData(bt.feeds.PandasData):
         ('high', 'high'),
         ('low', 'low'),
         ('close', 'close'),
-        ('volume', 'Volume'),
+        ('volume', 'volume'),  # Changed from 'Volume' to 'volume'
         ('openinterest', None),
         ('ml_signal', 'ML_Signal'),
         ('ml_probability', 'ML_Probability'),
@@ -291,16 +341,28 @@ class BacktestBacktraderML(BacktestBase):
         # Make a copy
         df_prepared = df.copy()
         
-        # Ensure we have the required columns
+        # Ensure we have the required columns (case-insensitive check)
         required_cols = ['open', 'high', 'low', 'close', 'volume']
-        for col in required_cols:
-            if col not in df_prepared.columns:
-                raise ValueError(f"Missing required column: {col}")
         
-        # Get features
-        X = df_prepared[X_columns].values
+        # Normalize column names to lowercase for checking
+        df_cols_lower = {col.lower(): col for col in df_prepared.columns}
         
-        # Scale features
+        # Check and rename if needed
+        for req_col in required_cols:
+            if req_col not in df_prepared.columns:
+                # Try to find case-insensitive match
+                if req_col.lower() in df_cols_lower:
+                    actual_col = df_cols_lower[req_col.lower()]
+                    if actual_col != req_col:
+                        print(f"Renaming column '{actual_col}' to '{req_col}'")
+                        df_prepared.rename(columns={actual_col: req_col}, inplace=True)
+                else:
+                    raise ValueError(f"Missing required column: {req_col} (case-insensitive)")
+        
+        # Get features (keep as DataFrame to preserve column names for scaler)
+        X = df_prepared[X_columns]
+        
+        # Scale features (pass DataFrame to avoid feature name warning)
         X_scaled = scaler.transform(X)
         
         # Get predictions
@@ -328,9 +390,12 @@ class BacktestBacktraderML(BacktestBase):
         if timestamp_column in df_prepared.columns:
             df_prepared.set_index(timestamp_column, inplace=True)
         
-        # Ensure index is datetime
+        # Ensure index is datetime and remove nanoseconds (Backtrader doesn't support them)
         if not isinstance(df_prepared.index, pd.DatetimeIndex):
             df_prepared.index = pd.to_datetime(df_prepared.index)
+        
+        # Remove nanoseconds to avoid Backtrader warning
+        df_prepared.index = df_prepared.index.floor('s')
         
         # Validate data - check for NaN/inf values in OHLCV columns
         ohlcv_cols = ['open', 'high', 'low', 'close', 'volume']
@@ -350,6 +415,27 @@ class BacktestBacktraderML(BacktestBase):
         df_prepared = df_prepared.dropna(subset=ohlcv_cols)
         if len(df_prepared) < initial_len:
             print(f"Warning: Dropped {initial_len - len(df_prepared)} rows with NaN values")
+        
+        # Debug: Print ML signal statistics
+        print(f"\nML Signal Statistics:")
+        print(f"  Total rows: {len(df_prepared)}")
+        print(f"  Buy signals (1): {(df_prepared['ML_Signal'] == 1).sum()}")
+        print(f"  Sell signals (0): {(df_prepared['ML_Signal'] == 0).sum()}")
+        print(f"\nProbability Statistics:")
+        print(f"  Avg probability: {df_prepared['ML_Probability'].mean():.3f}")
+        print(f"  Max probability: {df_prepared['ML_Probability'].max():.3f}")
+        print(f"  Min probability: {df_prepared['ML_Probability'].min():.3f}")
+        
+        # Show how many buy signals meet different probability thresholds
+        buy_signals = df_prepared[df_prepared['ML_Signal'] == 1]
+        if len(buy_signals) > 0:
+            print(f"\nBuy Signals Meeting Probability Thresholds:")
+            for threshold in [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8]:
+                count = (buy_signals['ML_Probability'] >= threshold).sum()
+                pct = (count / len(buy_signals)) * 100
+                print(f"  >= {threshold:.2f}: {count:4d} signals ({pct:5.1f}%)")
+            print(f"\n  ⚠ If all counts are 0, your probability threshold is too high!")
+            print(f"  ⚠ Consider lowering probability_threshold parameter.")
         
         return df_prepared
     
