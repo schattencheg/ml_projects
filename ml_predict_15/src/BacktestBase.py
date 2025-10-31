@@ -426,7 +426,14 @@ class BacktestBase(ABC):
         model_name: Optional[str] = None
     ) -> Dict[str, str]:
         """
-        Create comprehensive visualization suite in a single interactive HTML.
+        Create comprehensive visualization suite with separate interactive HTML files.
+        
+        Creates 5 separate Plotly HTML files:
+        1. Performance Overview (equity, drawdown, returns, metrics)
+        2. Trade Analysis (P&L over time, win/loss, duration, monthly)
+        3. Risk Analysis (rolling Sharpe, volatility, underwater, risk-return)
+        4. Monthly Heatmap
+        5. Trade Distribution (P&L dist, box plot, CDF, Q-Q plot)
         
         Parameters:
         -----------
@@ -438,6 +445,8 @@ class BacktestBase(ABC):
             Directory to save plots
         show_plots : bool
             Whether to display plots
+        model_name : str, optional
+            Model name for titles
             
         Returns:
         --------
@@ -462,32 +471,503 @@ class BacktestBase(ABC):
             save_dir = 'backtest_results'
             Path(save_dir).mkdir(parents=True, exist_ok=True)
         
-        # Create figure with subplots (4 rows x 3 columns = 12 plots)
+        print("\n" + "="*70)
+        print("CREATING COMPREHENSIVE PLOTLY VISUALIZATIONS")
+        print("="*70)
+        
+        # Extract data
+        equity_curve = results.get('equity_curve', self.equity_curve if hasattr(self, 'equity_curve') else None)
+        trades = results.get('trades', self.trades if hasattr(self, 'trades') else None)
+        
+        if equity_curve is None or len(equity_curve) == 0:
+            print("  ⚠ No equity curve data available")
+            return saved_files
+        
+        equity_df = pd.DataFrame(equity_curve)
+        
+        # Create comprehensive figure with all plots stacked vertically
+        # Total: 17 plots in 5 rows
         fig = make_subplots(
-            rows=4, cols=3,
+            rows=9, cols=2,
+            row_heights=[0.12, 0.12, 0.12, 0.12, 0.12, 0.12, 0.12, 0.08, 0.08],
             subplot_titles=(
-                'Equity Curve',
-                'Drawdown (Underwater)',
-                'Daily Returns Distribution',
-                'Cumulative P&L by Trade',
-                'Win/Loss Distribution',
-                'P&L vs Holding Period',
-                'Monthly P&L',
-                'Trade Duration Box Plot',
-                'Rolling Sharpe Ratio',
-                'Rolling Volatility',
-                'Trade P&L Distribution',
-                'Monthly Returns Heatmap'
+                # Row 1: Performance Overview
+                'Equity Curve', 'Drawdown (Underwater)',
+                # Row 2: Performance Overview continued
+                'Returns Distribution', 'Performance Metrics',
+                # Row 3: Trade Analysis
+                'Cumulative P&L by Trade', 'Win/Loss Distribution',
+                # Row 4: Trade Analysis continued
+                'Trade Duration Analysis', 'Monthly Performance',
+                # Row 5: Risk Analysis
+                'Rolling Sharpe Ratio', 'Rolling Volatility',
+                # Row 6: Risk Analysis continued
+                'Underwater Curve', 'Risk-Return Scatter',
+                # Row 7: Trade Distribution
+                'P&L Distribution', 'Win/Loss Box Plot',
+                # Row 8: Trade Distribution continued
+                'Cumulative Distribution', 'Q-Q Plot (Normal)',
+                # Row 9: Monthly Heatmap (spans 2 columns)
+                'Monthly Returns Heatmap', None
             ),
             specs=[
-                [{'type': 'scatter'}, {'type': 'scatter'}, {'type': 'histogram'}],
-                [{'type': 'scatter'}, {'type': 'histogram'}, {'type': 'scatter'}],
-                [{'type': 'bar'}, {'type': 'box'}, {'type': 'scatter'}],
-                [{'type': 'scatter'}, {'type': 'histogram'}, {'type': 'heatmap'}]
+                # Row 1
+                [{'type': 'scatter'}, {'type': 'scatter'}],
+                # Row 2
+                [{'type': 'histogram'}, {'type': 'table'}],
+                # Row 3
+                [{'type': 'scatter'}, {'type': 'histogram'}],
+                # Row 4
+                [{'type': 'box'}, {'type': 'bar'}],
+                # Row 5
+                [{'type': 'scatter'}, {'type': 'scatter'}],
+                # Row 6
+                [{'type': 'scatter'}, {'type': 'scatter'}],
+                # Row 7
+                [{'type': 'histogram'}, {'type': 'box'}],
+                # Row 8
+                [{'type': 'scatter'}, {'type': 'scatter'}],
+                # Row 9
+                [{'type': 'heatmap', 'colspan': 2}, None]
             ],
-            vertical_spacing=0.08,
-            horizontal_spacing=0.10
+            vertical_spacing=0.04,
+            horizontal_spacing=0.08
         )
+        
+        # ===== ROW 1: PERFORMANCE OVERVIEW =====
+        # 1. Equity Curve
+        fig.add_trace(
+            go.Scatter(
+                x=equity_df['timestamp'],
+                y=equity_df['equity'],
+                mode='lines',
+                name='Equity',
+                line=dict(color='blue', width=2),
+                fill='tozeroy',
+                fillcolor='rgba(0,100,255,0.2)',
+                showlegend=False
+            ),
+            row=1, col=1
+        )
+        initial_capital = results.get('initial_capital', 10000)
+        # Add initial capital line
+        fig.add_trace(
+            go.Scatter(
+                x=[equity_df['timestamp'].iloc[0], equity_df['timestamp'].iloc[-1]],
+                y=[initial_capital, initial_capital],
+                mode='lines',
+                line=dict(color='gray', dash='dash', width=1),
+                name='Initial Capital',
+                showlegend=False,
+                hoverinfo='skip'
+            ),
+            row=1, col=1
+        )
+        
+        # 2. Drawdown
+        peak = equity_df['equity'].expanding().max()
+        drawdown = ((equity_df['equity'] - peak) / peak * 100)
+        fig.add_trace(
+            go.Scatter(
+                x=equity_df['timestamp'],
+                y=drawdown,
+                mode='lines',
+                name='Drawdown',
+                line=dict(color='red', width=2),
+                fill='tozeroy',
+                fillcolor='rgba(255,0,0,0.2)',
+                showlegend=False
+            ),
+            row=1, col=2
+        )
+        
+        # ===== ROW 2: PERFORMANCE OVERVIEW CONTINUED =====
+        # 3. Returns Distribution
+        returns = equity_df['equity'].pct_change().dropna() * 100
+        fig.add_trace(
+            go.Histogram(
+                x=returns,
+                name='Returns',
+                marker_color='skyblue',
+                nbinsx=50,
+                showlegend=False
+            ),
+            row=2, col=1
+        )
+        mean_return = returns.mean()
+        # Add mean return line
+        fig.add_trace(
+            go.Scatter(
+                x=[mean_return, mean_return],
+                y=[0, len(returns) * 0.1],  # Approximate height for histogram
+                mode='lines',
+                line=dict(color='red', dash='dash', width=2),
+                name=f'Mean: {mean_return:.2f}%',
+                showlegend=False,
+                hoverinfo='skip'
+            ),
+            row=2, col=1
+        )
+        
+        # 4. Performance Metrics Table
+        metrics_data = [
+            ['Total Return', f"{results.get('total_return_pct', 0):.2f}%"],
+            ['Sharpe Ratio', f"{results.get('sharpe_ratio', 0):.2f}"],
+            ['Max Drawdown', f"{results.get('max_drawdown', 0):.2f}%"],
+            ['Win Rate', f"{results.get('win_rate', 0):.1f}%"],
+            ['Total Trades', f"{results.get('total_trades', 0)}"],
+            ['Profit Factor', f"{results.get('profit_factor', 0):.2f}"],
+            ['Avg Win', f"${results.get('avg_win', 0):.2f}"],
+            ['Avg Loss', f"${results.get('avg_loss', 0):.2f}"]
+        ]
+        fig.add_trace(
+            go.Table(
+                header=dict(
+                    values=['<b>Metric</b>', '<b>Value</b>'],
+                    fill_color='paleturquoise',
+                    align='left',
+                    font=dict(size=11)
+                ),
+                cells=dict(
+                    values=[[row[0] for row in metrics_data], [row[1] for row in metrics_data]],
+                    fill_color='lavender',
+                    align='left',
+                    font=dict(size=10)
+                )
+            ),
+            row=2, col=2
+        )
+        
+        # ===== ROW 3-4: TRADE ANALYSIS =====
+        if trades is not None and len(trades) > 0:
+            trades_df = pd.DataFrame(trades)
+            
+            # 5. Cumulative P&L
+            cumulative_pnl = trades_df['net_pnl'].cumsum()
+            fig.add_trace(
+                go.Scatter(
+                    x=list(range(len(cumulative_pnl))),
+                    y=cumulative_pnl,
+                    mode='lines+markers',
+                    name='Cumulative P&L',
+                    line=dict(color='blue', width=2),
+                    marker=dict(size=3),
+                    showlegend=False
+                ),
+                row=3, col=1
+            )
+            
+            # 6. Win/Loss Distribution
+            wins = trades_df[trades_df['net_pnl'] > 0]['net_pnl']
+            losses = trades_df[trades_df['net_pnl'] <= 0]['net_pnl']
+            fig.add_trace(
+                go.Histogram(x=wins, name='Wins', marker_color='green', opacity=0.7, nbinsx=20),
+                row=3, col=2
+            )
+            fig.add_trace(
+                go.Histogram(x=losses, name='Losses', marker_color='red', opacity=0.7, nbinsx=20),
+                row=3, col=2
+            )
+            
+            # 7. Trade Duration Box Plot
+            if 'duration_bars' not in trades_df.columns:
+                if 'entry_time' in trades_df.columns and 'exit_time' in trades_df.columns:
+                    trades_df['entry_time'] = pd.to_datetime(trades_df['entry_time'])
+                    trades_df['exit_time'] = pd.to_datetime(trades_df['exit_time'])
+                    trades_df['duration_bars'] = (trades_df['exit_time'] - trades_df['entry_time']).dt.total_seconds() / 3600
+                elif 'bars_held' in trades_df.columns:
+                    trades_df['duration_bars'] = trades_df['bars_held']
+            
+            if 'duration_bars' in trades_df.columns and len(trades_df['duration_bars'].dropna()) > 0:
+                fig.add_trace(
+                    go.Box(
+                        y=trades_df['duration_bars'],
+                        name='Duration',
+                        marker_color='orange',
+                        boxmean='sd',
+                        showlegend=False
+                    ),
+                    row=4, col=1
+                )
+            
+            # 8. Monthly Performance
+            if 'exit_time' in trades_df.columns:
+                trades_df['exit_time'] = pd.to_datetime(trades_df['exit_time'])
+                trades_df['month'] = trades_df['exit_time'].dt.month
+                monthly_pnl = trades_df.groupby('month')['net_pnl'].sum()
+                colors = ['green' if x > 0 else 'red' for x in monthly_pnl.values]
+                fig.add_trace(
+                    go.Bar(
+                        x=monthly_pnl.index,
+                        y=monthly_pnl.values,
+                        marker_color=colors,
+                        name='Monthly P&L',
+                        text=[f'${x:.0f}' for x in monthly_pnl.values],
+                        textposition='auto',
+                        showlegend=False
+                    ),
+                    row=4, col=2
+                )
+        
+        # ===== ROW 5-6: RISK ANALYSIS =====
+        equity_df['returns'] = equity_df['equity'].pct_change()
+        window = min(30, len(equity_df) // 4)
+        
+        # 9. Rolling Sharpe
+        if window > 1:
+            rolling_sharpe = (equity_df['returns'].rolling(window).mean() / 
+                            equity_df['returns'].rolling(window).std() * np.sqrt(252))
+            fig.add_trace(
+                go.Scatter(
+                    x=equity_df['timestamp'],
+                    y=rolling_sharpe,
+                    mode='lines',
+                    name=f'Sharpe ({window}d)',
+                    line=dict(color='purple', width=2),
+                    showlegend=False
+                ),
+                row=5, col=1
+            )
+        
+        # 10. Rolling Volatility
+        if window > 1:
+            rolling_vol = equity_df['returns'].rolling(window).std() * np.sqrt(252) * 100
+            fig.add_trace(
+                go.Scatter(
+                    x=equity_df['timestamp'],
+                    y=rolling_vol,
+                    mode='lines',
+                    name=f'Volatility ({window}d)',
+                    line=dict(color='orange', width=2),
+                    showlegend=False
+                ),
+                row=5, col=2
+            )
+        
+        # 11. Underwater Curve
+        fig.add_trace(
+            go.Scatter(
+                x=equity_df['timestamp'],
+                y=drawdown,
+                mode='lines',
+                name='Drawdown',
+                line=dict(color='red', width=2),
+                fill='tozeroy',
+                fillcolor='rgba(255,0,0,0.2)',
+                showlegend=False
+            ),
+            row=6, col=1
+        )
+        
+        # 12. Risk-Return Scatter
+        if trades is not None and len(trades) > 0 and 'duration_bars' in trades_df.columns:
+            if len(trades_df['duration_bars'].dropna()) > 0:
+                fig.add_trace(
+                    go.Scatter(
+                        x=trades_df['duration_bars'],
+                        y=trades_df['net_pnl'],
+                        mode='markers',
+                        name='Trades',
+                        marker=dict(
+                            color=trades_df['net_pnl'],
+                            colorscale='RdYlGn',
+                            size=6,
+                            opacity=0.6,
+                            showscale=True,
+                            colorbar=dict(title='P&L', len=0.3, y=0.25)
+                        ),
+                        showlegend=False
+                    ),
+                    row=6, col=2
+                )
+        
+        # ===== ROW 7-8: TRADE DISTRIBUTION =====
+        if trades is not None and len(trades) > 0:
+            pnl_col = 'net_pnl'
+            
+            # 13. P&L Distribution
+            fig.add_trace(
+                go.Histogram(
+                    x=trades_df[pnl_col],
+                    name='P&L',
+                    marker_color='skyblue',
+                    nbinsx=30,
+                    showlegend=False
+                ),
+                row=7, col=1
+            )
+            mean_pnl = trades_df[pnl_col].mean()
+            # Add mean line as a vertical line trace
+            fig.add_trace(
+                go.Scatter(
+                    x=[mean_pnl, mean_pnl],
+                    y=[0, trades_df[pnl_col].value_counts().max()],
+                    mode='lines',
+                    line=dict(color='red', dash='dash', width=2),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ),
+                row=7, col=1
+            )
+            # Add zero line
+            fig.add_trace(
+                go.Scatter(
+                    x=[0, 0],
+                    y=[0, trades_df[pnl_col].value_counts().max()],
+                    mode='lines',
+                    line=dict(color='black', dash='dash', width=1),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ),
+                row=7, col=1
+            )
+            
+            # 14. Win/Loss Box Plot
+            fig.add_trace(
+                go.Box(y=wins, name='Wins', marker_color='green', boxmean='sd'),
+                row=7, col=2
+            )
+            fig.add_trace(
+                go.Box(y=losses, name='Losses', marker_color='red', boxmean='sd'),
+                row=7, col=2
+            )
+            
+            # 15. Cumulative Distribution
+            sorted_pnl = np.sort(trades_df[pnl_col])
+            cumulative_prob = np.arange(1, len(sorted_pnl) + 1) / len(sorted_pnl)
+            fig.add_trace(
+                go.Scatter(
+                    x=sorted_pnl,
+                    y=cumulative_prob,
+                    mode='lines+markers',
+                    name='CDF',
+                    line=dict(color='blue', width=2),
+                    marker=dict(size=2),
+                    showlegend=False
+                ),
+                row=8, col=1
+            )
+            
+            # 16. Q-Q Plot
+            try:
+                from scipy import stats
+                theoretical_quantiles, sample_quantiles = stats.probplot(trades_df[pnl_col], dist="norm")
+                fig.add_trace(
+                    go.Scatter(
+                        x=theoretical_quantiles[0],
+                        y=theoretical_quantiles[1],
+                        mode='markers',
+                        name='Q-Q',
+                        marker=dict(color='blue', size=4),
+                        showlegend=False
+                    ),
+                    row=8, col=2
+                )
+                min_val = min(theoretical_quantiles[0].min(), theoretical_quantiles[1].min())
+                max_val = max(theoretical_quantiles[0].max(), theoretical_quantiles[1].max())
+                fig.add_trace(
+                    go.Scatter(
+                        x=[min_val, max_val],
+                        y=[min_val, max_val],
+                        mode='lines',
+                        name='Normal',
+                        line=dict(color='red', dash='dash'),
+                        showlegend=False
+                    ),
+                    row=8, col=2
+                )
+            except:
+                pass
+            
+            # 17. Monthly Heatmap
+            if 'exit_time' in trades_df.columns:
+                trades_df['year'] = trades_df['exit_time'].dt.year
+                monthly_returns = trades_df.groupby(['year', 'month'])['net_pnl'].sum().reset_index()
+                heatmap_data = monthly_returns.pivot(index='year', columns='month', values='net_pnl')
+                heatmap_data = heatmap_data.fillna(0)
+                
+                fig.add_trace(
+                    go.Heatmap(
+                        z=heatmap_data.values,
+                        x=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][:len(heatmap_data.columns)],
+                        y=heatmap_data.index,
+                        colorscale='RdYlGn',
+                        zmid=0,
+                        text=heatmap_data.values,
+                        texttemplate='$%{text:.0f}',
+                        textfont={"size": 9},
+                        colorbar=dict(title='P&L', len=0.3, y=0.05),
+                        showscale=True
+                    ),
+                    row=9, col=1
+                )
+        
+        # Update layout
+        model_str = f" - {model_name}" if model_name else ""
+        fig.update_layout(
+            title=dict(
+                text=f'Comprehensive Backtest Analysis{model_str}<br><sub>Total Return: {results.get("total_return_pct", 0):.2f}% | Win Rate: {results.get("win_rate", 0):.1f}% | Sharpe: {results.get("sharpe_ratio", 0):.2f}</sub>',
+                x=0.5,
+                xanchor='center',
+                font=dict(size=16)
+            ),
+            height=3000,  # Tall layout for vertical stacking
+            showlegend=True,
+            template='plotly_white',
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        
+        # Update axes labels (skip row 2 col 2 which is a table)
+        fig.update_xaxes(title_text="Date", row=1, col=1)
+        fig.update_yaxes(title_text="Equity ($)", row=1, col=1)
+        fig.update_xaxes(title_text="Date", row=1, col=2)
+        fig.update_yaxes(title_text="Drawdown (%)", row=1, col=2)
+        fig.update_xaxes(title_text="Return (%)", row=2, col=1)
+        fig.update_yaxes(title_text="Frequency", row=2, col=1)
+        # Row 2, Col 2 is a table - no axes to update
+        fig.update_xaxes(title_text="Trade #", row=3, col=1)
+        fig.update_yaxes(title_text="Cumulative P&L ($)", row=3, col=1)
+        fig.update_xaxes(title_text="P&L ($)", row=3, col=2)
+        fig.update_yaxes(title_text="Frequency", row=3, col=2)
+        fig.update_yaxes(title_text="Duration (bars)", row=4, col=1)
+        fig.update_xaxes(title_text="Month", row=4, col=2)
+        fig.update_yaxes(title_text="P&L ($)", row=4, col=2)
+        fig.update_xaxes(title_text="Date", row=5, col=1)
+        fig.update_yaxes(title_text="Sharpe Ratio", row=5, col=1)
+        fig.update_xaxes(title_text="Date", row=5, col=2)
+        fig.update_yaxes(title_text="Volatility (%)", row=5, col=2)
+        fig.update_xaxes(title_text="Date", row=6, col=1)
+        fig.update_yaxes(title_text="Drawdown (%)", row=6, col=1)
+        fig.update_xaxes(title_text="Holding Period (bars)", row=6, col=2)
+        fig.update_yaxes(title_text="P&L ($)", row=6, col=2)
+        fig.update_xaxes(title_text="P&L ($)", row=7, col=1)
+        fig.update_yaxes(title_text="Frequency", row=7, col=1)
+        fig.update_yaxes(title_text="P&L ($)", row=7, col=2)
+        fig.update_xaxes(title_text="P&L ($)", row=8, col=1)
+        fig.update_yaxes(title_text="Cumulative Probability", row=8, col=1)
+        fig.update_xaxes(title_text="Theoretical Quantiles", row=8, col=2)
+        fig.update_yaxes(title_text="Sample Quantiles", row=8, col=2)
+        fig.update_xaxes(title_text="Month", row=9, col=1)
+        fig.update_yaxes(title_text="Year", row=9, col=1)
+        
+        # Save HTML
+        timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+        model_suffix = f"_{model_name}" if model_name else ""
+        filepath = Path(save_dir) / f'comprehensive_analysis{model_suffix}_{timestamp}.html'
+        fig.write_html(str(filepath))
+        saved_files['comprehensive'] = str(filepath)
+        
+        print(f"  ✓ Comprehensive analysis saved to: {filepath.name}")
+        print(f"  ✓ Total plots: 17 (all in one HTML file)")
+        print("="*70)
+        print(f"✓ All visualizations saved to: {save_dir}")
+        print("="*70)
+        
+        # Open in browser
+        if show_plots:
+            webbrowser.open('file://' + os.path.abspath(str(filepath)))
+        
+        return saved_files
         
         # Extract data from results or self
         equity_curve = results.get('equity_curve', self.equity_curve if hasattr(self, 'equity_curve') else None)
