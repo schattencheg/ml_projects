@@ -29,6 +29,7 @@ mlflow>=3.5.0  # For experiment tracking and model registry
 
 # Backtesting Libraries
 backtesting>=0.6.5
+mplfinance>=0.12.10b0  # For candlestick charts
 backtrader>=1.9.76
 bokeh>=3.8.0  # For backtesting.py interactive plots
 
