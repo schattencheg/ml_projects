@@ -12,6 +12,8 @@ Uses the new class-based architecture:
 
 import os
 import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
 from datetime import datetime
 
 # Import new classes
@@ -34,6 +36,121 @@ PATH_MODELS = "models"
 os.environ["PATH_TRAIN"] = PATH_TRAIN
 os.environ["PATH_TEST"] = PATH_TEST
 os.environ["PATH_MODELS"] = PATH_MODELS
+
+
+def _create_models_comparison_plot(all_results, all_equity_curves):
+    """
+    Create a comprehensive comparison plot for all tested models.
+    
+    Parameters:
+    -----------
+    all_results : dict
+        Dictionary of model_name -> results dict
+    all_equity_curves : dict
+        Dictionary of model_name -> equity curve DataFrame
+    """
+    if not all_results or not all_equity_curves:
+        print("⚠ No results to plot")
+        return
+    
+    # Create figure with 2 subplots
+    fig = plt.figure(figsize=(16, 10))
+    gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.3)
+    
+    # Subplot 1: Equity curves
+    ax1 = fig.add_subplot(gs[0])
+    
+    # Define colors for models
+    colors = plt.cm.tab10(np.linspace(0, 1, len(all_equity_curves)))
+    
+    # Plot each model's equity curve
+    for i, (model_name, equity_df) in enumerate(all_equity_curves.items()):
+        if 'equity' in equity_df.columns and 'timestamp' in equity_df.columns:
+            # Normalize to percentage return
+            initial_capital = all_results[model_name].get('initial_capital', 10000)
+            equity_pct = (equity_df['equity'] / initial_capital - 1) * 100
+            
+            ax1.plot(equity_df['timestamp'], equity_pct, 
+                    label=model_name.replace('_', ' ').title(),
+                    linewidth=2, color=colors[i], alpha=0.8)
+    
+    ax1.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.3)
+    ax1.set_xlabel('Date', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Return (%)', fontsize=12, fontweight='bold')
+    ax1.set_title('Model Comparison - Equity Curves', fontsize=14, fontweight='bold')
+    ax1.legend(loc='best', fontsize=10, framealpha=0.9)
+    ax1.grid(True, alpha=0.3)
+    
+    # Format x-axis
+    ax1.tick_params(axis='x', rotation=45)
+    
+    # Subplot 2: Summary table
+    ax2 = fig.add_subplot(gs[1])
+    ax2.axis('off')
+    
+    # Create summary data
+    summary_data = []
+    for model_name, results in all_results.items():
+        summary_data.append([
+            model_name.replace('_', ' ').title(),
+            f"${results.get('final_value', 0):,.0f}",
+            f"{results.get('total_return_pct', 0):.2f}%",
+            f"{results.get('total_trades', 0)}",
+            f"{results.get('win_rate', 0):.1f}%",
+            f"{results.get('sharpe_ratio', 0):.2f}",
+            f"{results.get('max_drawdown', 0):.1f}%"
+        ])
+    
+    # Sort by total return
+    summary_data.sort(key=lambda x: float(x[2].rstrip('%')), reverse=True)
+    
+    # Create table
+    columns = ['Model', 'Final Value', 'Return', 'Trades', 'Win Rate', 'Sharpe', 'Max DD']
+    
+    table = ax2.table(cellText=summary_data, colLabels=columns,
+                     cellLoc='center', loc='center',
+                     colWidths=[0.20, 0.15, 0.12, 0.10, 0.12, 0.10, 0.12])
+    
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1, 2)
+    
+    # Style header
+    for i in range(len(columns)):
+        cell = table[(0, i)]
+        cell.set_facecolor('#4CAF50')
+        cell.set_text_props(weight='bold', color='white')
+    
+    # Style rows - alternate colors
+    for i in range(1, len(summary_data) + 1):
+        for j in range(len(columns)):
+            cell = table[(i, j)]
+            if i % 2 == 0:
+                cell.set_facecolor('#f0f0f0')
+            else:
+                cell.set_facecolor('white')
+    
+    # Highlight best model (first row after sorting)
+    for j in range(len(columns)):
+        cell = table[(1, j)]
+        cell.set_facecolor('#90EE90')
+        cell.set_text_props(weight='bold')
+    
+    ax2.set_title('Performance Summary (Sorted by Return)', 
+                 fontsize=12, fontweight='bold', pad=20)
+    
+    plt.tight_layout()
+    
+    # Save plot
+    output_dir = 'backtest_results'
+    os.makedirs(output_dir, exist_ok=True)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filepath = os.path.join(output_dir, f'models_comparison_{timestamp}.png')
+    plt.savefig(filepath, dpi=300, bbox_inches='tight')
+    print(f"\n✓ Comparison plot saved to: {filepath}")
+    
+    plt.show()
+    plt.close()
 
 
 def main_train(features_method='crypto'):
@@ -295,6 +412,11 @@ def main_backtest(features_method='crypto'):
     #backtester = BacktestBacktraderML()
     backtester = BacktestNoLib()
     #backtester = BacktestBacktestingML()
+    
+    # Store results for all models
+    all_results = {}
+    all_equity_curves = {}
+    
     for i, (model_name, model) in enumerate(models.items(), 1):
         print(f"\n{'='*80}")
         print(f"BACKTEST {i}/{len(models)}: {model_name.upper()}")
@@ -313,15 +435,26 @@ def main_backtest(features_method='crypto'):
             printlog = False
         )
         
+        # Store results
+        all_results[model_name] = results
+        if 'equity_curve' in results:
+            all_equity_curves[model_name] = results['equity_curve']
+        
         # Print results
         print(f"\nResults for {model_name}:")
         print(f"  Final Value: ${results['final_value']:,.2f}")
-        print(f"  Total Return: {results['total_return']:.2f}%")
+        print(f"  Total Return: {results['total_return_pct']:.2f}%")
         print(f"  Total Trades: {results['total_trades']}")
         print(f"  Win Rate: {results['win_rate']:.2f}%")
         print(f"  Sharpe Ratio: {results.get('sharpe_ratio', 0):.2f}")
         print(f"  Max Drawdown: {results.get('max_drawdown', 0):.2f}%")
         backtester.create_comprehensive_visualizations(trades)
+    
+    # Create final comparison plot
+    print(f"\n{'='*80}")
+    print(f"CREATING FINAL COMPARISON PLOT")
+    print(f"{'='*80}")
+    _create_models_comparison_plot(all_results, all_equity_curves)
 
 
 if __name__ == "__main__":
