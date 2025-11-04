@@ -432,7 +432,15 @@ def main_train(features_method='crypto'):
     print("STEP 4: CREATING MODELS")
     print("="*80)
     
-    models_manager = ModelsManager(models_dir='models')
+    # Create models manager with neural networks support
+    # NOTE: Neural networks require TensorFlow/Keras: pip install tensorflow keras
+    models_manager = ModelsManager(
+        models_dir='models',
+        include_neural_networks=True,  # Enable neural networks (1D-CNN, LSTM, GRU variants)
+        sequence_length=30,            # Sequence length for time series models
+        epochs=50,                     # Training epochs for neural networks
+        batch_size=32                  # Batch size for neural networks
+    )
     
     # Show configuration
     print("\nEnabled models:")
@@ -451,7 +459,10 @@ def main_train(features_method='crypto'):
     trainer = Trainer(
         use_smote=True,           # Apply SMOTE for imbalanced data
         optimize_threshold=True,  # Optimize probability threshold
-        use_scaler=True          # Scale features
+        use_scaler=True,         # Scale features
+        use_mlflow=True,         # Enable MLflow tracking
+        mlflow_experiment="ml_predict_15/crypto_prediction_with_neural_networks",
+        mlflow_tracking_uri="http://localhost:5000"  # Auto-detects if server running
     )
     
     trained_models, scaler, train_results, best_model_name = trainer.train(
@@ -713,7 +724,6 @@ def main_backtest(features_method='crypto'):
     print(f"  - Analysis charts (PNG): View with image viewer")
     print(f"  - Model comparison plot (PNG): Final comparison")
     print(f"{'='*80}")
-
 
 if __name__ == "__main__":
     #main_train()

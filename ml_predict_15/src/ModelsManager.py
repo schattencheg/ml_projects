@@ -16,13 +16,22 @@ from sklearn.svm import SVC
 import xgboost as xgb
 import lightgbm as lgb
 
+# Import neural networks manager
+try:
+    from .NeuralNetworksManager import NeuralNetworksManager
+    NEURAL_NETWORKS_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Neural networks not available: {e}")
+    NEURAL_NETWORKS_AVAILABLE = False
+
 
 class ModelsManager:
     """
     Manages ML model creation, loading, and saving.
     """
     
-    def __init__(self, models_dir='models'):
+    def __init__(self, models_dir='models', include_neural_networks=True, 
+                 sequence_length=30, epochs=50, batch_size=32):
         """
         Initialize ModelsManager.
         
@@ -30,9 +39,26 @@ class ModelsManager:
         -----------
         models_dir : str
             Directory to save/load models
+        include_neural_networks : bool
+            Whether to include neural network models
+        sequence_length : int
+            Sequence length for neural networks
+        epochs : int
+            Training epochs for neural networks
+        batch_size : int
+            Batch size for neural networks
         """
         self.models_dir = models_dir
         os.makedirs(models_dir, exist_ok=True)
+        
+        # Initialize neural networks manager if available and requested
+        self.neural_networks_manager = None
+        if include_neural_networks and NEURAL_NETWORKS_AVAILABLE:
+            self.neural_networks_manager = NeuralNetworksManager(
+                sequence_length=sequence_length,
+                epochs=epochs,
+                batch_size=batch_size
+            )
         
         # Model configuration
         self.model_config = {
@@ -91,7 +117,7 @@ class ModelsManager:
             }
         }
     
-    def create_models(self, enabled_only=True):
+    def create_models(self, enabled_only=True, include_neural_networks=True):
         """
         Create fresh model instances.
         
@@ -99,6 +125,8 @@ class ModelsManager:
         -----------
         enabled_only : bool
             If True, only create enabled models
+        include_neural_networks : bool
+            If True, include neural network models
             
         Returns:
         --------
@@ -106,6 +134,7 @@ class ModelsManager:
         """
         models = {}
         
+        # Create traditional ML models
         for name, config in self.model_config.items():
             if enabled_only and not config['enabled']:
                 continue
@@ -116,6 +145,12 @@ class ModelsManager:
                 print(f"✓ Created model: {name}")
             except Exception as e:
                 print(f"✗ Failed to create model {name}: {e}")
+        
+        # Create neural network models
+        if include_neural_networks and self.neural_networks_manager is not None:
+            print(f"\nCreating neural network models...")
+            neural_models = self.neural_networks_manager.create_models(enabled_only=enabled_only)
+            models.update(neural_models)
         
         print(f"\nTotal models created: {len(models)}")
         return models
@@ -309,15 +344,65 @@ class ModelsManager:
         else:
             print(f"✗ Model {model_name} not found")
     
-    def get_enabled_models(self):
+    def get_enabled_models(self, include_neural_networks=True):
         """
         Get list of enabled model names.
+        
+        Parameters:
+        -----------
+        include_neural_networks : bool
+            Whether to include neural network models
         
         Returns:
         --------
         list : List of enabled model names
         """
-        return [name for name, config in self.model_config.items() if config['enabled']]
+        enabled_models = [name for name, config in self.model_config.items() if config['enabled']]
+        
+        if include_neural_networks and self.neural_networks_manager is not None:
+            enabled_models.extend(self.neural_networks_manager.get_enabled_models())
+        
+        return enabled_models
+    
+    def enable_neural_network(self, model_name, enabled=True):
+        """
+        Enable or disable a neural network model.
+        
+        Parameters:
+        -----------
+        model_name : str
+            Name of the neural network model
+        enabled : bool
+            Whether to enable or disable
+        """
+        if self.neural_networks_manager is not None:
+            self.neural_networks_manager.enable_model(model_name, enabled)
+        else:
+            print(f"✗ Neural networks not available")
+    
+    def configure_neural_networks(self, sequence_length=None, epochs=None, batch_size=None):
+        """
+        Update neural network configuration.
+        
+        Parameters:
+        -----------
+        sequence_length : int, optional
+            New sequence length
+        epochs : int, optional
+            New number of epochs
+        batch_size : int, optional
+            New batch size
+        """
+        if self.neural_networks_manager is not None:
+            if sequence_length is not None:
+                self.neural_networks_manager.sequence_length = sequence_length
+            if epochs is not None:
+                self.neural_networks_manager.epochs = epochs
+            if batch_size is not None:
+                self.neural_networks_manager.batch_size = batch_size
+            print(f"✓ Neural network configuration updated")
+        else:
+            print(f"✗ Neural networks not available")
     
     def print_config(self):
         """Print current model configuration."""
@@ -334,7 +419,8 @@ class ModelsManager:
             else:
                 disabled.append(name)
         
-        print(f"\nEnabled models ({len(enabled)}):")
+        print(f"\nTraditional ML Models:")
+        print(f"Enabled models ({len(enabled)}):")
         for name in enabled:
             print(f"  ✓ {name}")
         
@@ -342,5 +428,11 @@ class ModelsManager:
             print(f"\nDisabled models ({len(disabled)}):")
             for name in disabled:
                 print(f"  ✗ {name}")
+        
+        # Print neural networks configuration
+        if self.neural_networks_manager is not None:
+            self.neural_networks_manager.print_config()
+        else:
+            print(f"\nNeural Networks: Not available")
         
         print(f"{'='*70}\n")

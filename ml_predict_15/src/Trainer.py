@@ -18,13 +18,22 @@ except ImportError:
     SMOTE_AVAILABLE = False
     print("Warning: imbalanced-learn not installed. SMOTE will not be available.")
 
+# MLflow integration
+try:
+    from .MLflowTracker import MLflowTracker
+    MLFLOW_TRACKER_AVAILABLE = True
+except ImportError:
+    MLFLOW_TRACKER_AVAILABLE = False
+
 
 class Trainer:
     """
     Trains multiple ML models with automatic handling of imbalanced data.
     """
     
-    def __init__(self, use_smote=True, optimize_threshold=True, use_scaler=True):
+    def __init__(self, use_smote=True, optimize_threshold=True, use_scaler=True, 
+                 use_mlflow=True, mlflow_experiment="ml_predict_15/crypto_prediction",
+                 mlflow_tracking_uri="http://localhost:5000"):
         """
         Initialize Trainer.
         
@@ -36,6 +45,12 @@ class Trainer:
             Whether to optimize probability threshold
         use_scaler : bool
             Whether to scale features
+        use_mlflow : bool
+            Whether to use MLflow tracking
+        mlflow_experiment : str
+            MLflow experiment name
+        mlflow_tracking_uri : str
+            MLflow tracking server URI
         """
         self.use_smote = use_smote and SMOTE_AVAILABLE
         self.optimize_threshold = optimize_threshold
@@ -44,6 +59,16 @@ class Trainer:
         self.results = {}
         self.best_model_name = None
         self.training_time = 0
+        
+        # MLflow setup
+        self.use_mlflow = use_mlflow and MLFLOW_TRACKER_AVAILABLE
+        self.mlflow_tracker = None
+        if self.use_mlflow:
+            self.mlflow_tracker = MLflowTracker(
+                experiment_name=mlflow_experiment,
+                tracking_uri=mlflow_tracking_uri,
+                enable_tracking=True
+            )
     
     def train(self, models, X_train, y_train, X_val=None, y_val=None):
         """
@@ -69,6 +94,24 @@ class Trainer:
         print(f"\n{'='*70}")
         print(f"TRAINING MODELS")
         print(f"{'='*70}\n")
+        
+        # Start MLflow run
+        mlflow_run_id = None
+        if self.use_mlflow and self.mlflow_tracker and self.mlflow_tracker.is_available():
+            mlflow_run_id = self.mlflow_tracker.start_run()
+            
+            # Log training configuration
+            training_config = {
+                'use_smote': self.use_smote,
+                'optimize_threshold': self.optimize_threshold,
+                'use_scaler': self.use_scaler,
+                'num_models': len(models),
+                'model_names': list(models.keys()),
+                'training_samples': len(X_train),
+                'validation_samples': len(X_val) if X_val is not None else 0,
+                'feature_count': X_train.shape[1] if hasattr(X_train, 'shape') else len(X_train[0])
+            }
+            self.mlflow_tracker.log_params(training_config)
         
         # Scale features
         if self.use_scaler:
@@ -156,6 +199,10 @@ class Trainer:
         print(f"Best model: {self.best_model_name}")
         print(f"{'='*70}\n")
         
+        # Log results to MLflow
+        if mlflow_run_id and self.mlflow_tracker:
+            self._log_results_to_mlflow(trained_models, class_dist)
+        
         return trained_models, self.scaler, self.results, self.best_model_name
     
     def _calculate_metrics(self, y_true, y_pred, training_time=None):
@@ -191,6 +238,97 @@ class Trainer:
                 best_threshold = threshold
         
         return best_threshold
+    
+    def _log_results_to_mlflow(self, trained_models, class_dist):
+        """Log training results to MLflow."""
+        try:
+            # Prepare metrics for logging
+            all_metrics = {}
+            
+            # Log class distribution
+            for cls, count in class_dist.items():
+                all_metrics[f"class_{cls}_count"] = count
+                all_metrics[f"class_{cls}_percentage"] = count / sum(class_dist.values()) * 100
+            
+            # Log model-specific metrics
+            for model_name, results in self.results.items():
+                train_metrics = results['train_metrics']
+                val_metrics = results.get('val_metrics', {})
+                
+                # Training metrics
+                for metric_name, value in train_metrics.items():
+                    all_metrics[f"{model_name}_train_{metric_name}"] = value
+                
+                # Validation metrics
+                for metric_name, value in val_metrics.items():
+                    all_metrics[f"{model_name}_val_{metric_name}"] = value
+                
+                # Other metrics
+                all_metrics[f"{model_name}_optimal_threshold"] = results['optimal_threshold']
+            
+            # Best model metrics
+            if self.best_model_name in self.results:
+                best_results = self.results[self.best_model_name]
+                for metric_name, value in best_results['train_metrics'].items():
+                    all_metrics[f"best_{metric_name}"] = value
+            
+            # Summary metrics
+            all_metrics["total_training_time"] = self.training_time
+            all_metrics["avg_training_time"] = self.training_time / len(trained_models)
+            all_metrics["num_models_trained"] = len(trained_models)
+            
+            # Log all metrics
+            self.mlflow_tracker.log_metrics(all_metrics)
+            
+            # Log best model
+            if self.best_model_name in trained_models:
+                best_model = trained_models[self.best_model_name]
+                self.mlflow_tracker.log_model(best_model, self.best_model_name)
+                
+                # Log neural network specific info if applicable
+                if hasattr(best_model, 'model') or 'neural' in self.best_model_name.lower():
+                    self.mlflow_tracker.log_neural_network_info(best_model, self.best_model_name)
+            
+            # Log all neural network models
+            for model_name, model in trained_models.items():
+                if hasattr(model, 'model') or any(nn_type in model_name.lower() 
+                                                 for nn_type in ['cnn', 'lstm', 'gru', 'neural']):
+                    self.mlflow_tracker.log_neural_network_info(model, model_name)
+            
+            # Prepare artifacts
+            results_df = pd.DataFrame({
+                name: {
+                    **results['train_metrics'],
+                    **{f"val_{k}": v for k, v in results.get('val_metrics', {}).items()},
+                    'optimal_threshold': results['optimal_threshold']
+                }
+                for name, results in self.results.items()
+            }).T
+            
+            artifacts = {
+                "training_results": results_df,
+                "class_distribution": pd.DataFrame(list(class_dist.items()), 
+                                                 columns=['class', 'count']),
+                "training_summary": {
+                    "best_model": self.best_model_name,
+                    "total_time": self.training_time,
+                    "num_models": len(trained_models),
+                    "model_names": list(trained_models.keys())
+                }
+            }
+            
+            self.mlflow_tracker.log_artifacts(artifacts)
+            
+            # End MLflow run
+            self.mlflow_tracker.end_run()
+            
+        except Exception as e:
+            print(f"⚠ Failed to log results to MLflow: {e}")
+            if self.mlflow_tracker:
+                try:
+                    self.mlflow_tracker.end_run()
+                except:
+                    pass
     
     def print_results(self):
         """Print training results summary."""
