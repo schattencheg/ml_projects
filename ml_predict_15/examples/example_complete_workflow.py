@@ -173,7 +173,7 @@ def main():
         test_results=test_results,
         y_test=y_test,
         filename=f"ml_report_{timestamp}",
-        target_names=['No Rise', 'Rise']
+        target_names=['Down', 'Neutral', 'Up']
     )
     
     # ==================== STEP 9: MONITOR HEALTH ====================

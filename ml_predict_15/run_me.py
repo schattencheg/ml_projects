@@ -665,7 +665,7 @@ def main_backtest(features_method='crypto', target_bars=45, target_pct=1.0):
             model = model,
             scaler = scaler,
             X_columns = top_features,
-            probability_threshold = 0.6,
+            probability_threshold = 0.4,  # Lower for 3-class (0.4 vs 0.6 for 2-class)
             trailing_stop_pct = 2.0,
             take_profit_pct = None,
             position_size_pct = 0.9,

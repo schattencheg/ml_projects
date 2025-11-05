@@ -339,7 +339,11 @@ class BacktestNoLib(BacktestBase):
         
         # Get probabilities if available
         if hasattr(model, 'predict_proba'):
-            probabilities = model.predict_proba(X_scaled)[:, 1]
+            proba_array = model.predict_proba(X_scaled)
+            # For 3-class: [Down, Neutral, Up] -> use class 2 (Up)
+            # For 2-class: [Down, Up] -> use class 1 (Up)
+            up_class_idx = proba_array.shape[1] - 1  # Last class is always "Up"
+            probabilities = proba_array[:, up_class_idx]
         elif hasattr(model, 'decision_function'):
             # For models with decision_function, normalize to 0-1
             decision_scores = model.decision_function(X_scaled)
@@ -365,8 +369,12 @@ class BacktestNoLib(BacktestBase):
                 if self.check_exit_conditions(current_price, timestamp):
                     continue
             
-            # Check entry signal
-            if self.position == 0 and prediction == 1:
+            # Check entry signal (class 2 for 3-class, class 1 for 2-class)
+            # Assuming last class is always "Up"
+            num_classes = len(np.unique(predictions))
+            up_class = num_classes - 1  # Last class is "Up"
+            
+            if self.position == 0 and prediction == up_class:
                 # Check probability threshold
                 if self.use_probability_threshold:
                     if probability >= self.probability_threshold:

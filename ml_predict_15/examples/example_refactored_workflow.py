@@ -158,7 +158,7 @@ def main():
     
     # Print detailed report for best model
     best_test_model = tester.get_best_model_name()
-    tester.print_detailed_report(best_test_model, y_test, target_names=['No Rise', 'Rise'])
+    tester.print_detailed_report(best_test_model, y_test, target_names=['Down', 'Neutral', 'Up'])
     
     # ==================== STEP 8: MONITOR HEALTH ====================
     print("\n" + "="*70)

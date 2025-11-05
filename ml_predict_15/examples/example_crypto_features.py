@@ -184,7 +184,7 @@ def main():
     
     print("\nTest Set Results:")
     print(f"{'-'*70}")
-    print(classification_report(y_test, y_pred, target_names=['No Rise', 'Rise']))
+    print(classification_report(y_test, y_pred, target_names=['Down', 'Neutral', 'Up']))
     
     print("\nConfusion Matrix:")
     cm = confusion_matrix(y_test, y_pred)
@@ -210,7 +210,7 @@ def main():
     
     print("\nTest Set Results (Top 30 Features):")
     print(f"{'-'*70}")
-    print(classification_report(y_test, y_pred_top, target_names=['No Rise', 'Rise']))
+    print(classification_report(y_test, y_pred_top, target_names=['Down', 'Neutral', 'Up']))
     
     # Summary
     print(f"\n{'='*70}")

@@ -16,6 +16,7 @@ from abc import ABC, abstractmethod
 import warnings
 from pathlib import Path
 import json
+import os
 
 # Set style for better plots
 plt.style.use('seaborn-v0_8')
@@ -462,7 +463,8 @@ class BacktestBase(ABC):
             import os
         except ImportError:
             print("⚠ Plotly not installed. Falling back to matplotlib.")
-            return self._create_comprehensive_visualizations_matplotlib(results, df, save_dir, show_plots)
+            return self._create_comprehensive_visualizations_matplotlib(results, 
+                                        df, save_dir, show_plots, path_suffix)
         
         saved_files = {}
         
@@ -1357,7 +1359,8 @@ class BacktestBase(ABC):
         results: Dict,
         df: pd.DataFrame = None,
         save_dir: Optional[str] = None,
-        show_plots: bool = True
+        show_plots: bool = True,
+        path_suffix: str = None
     ) -> Dict[str, str]:
         """
         Fallback matplotlib version of comprehensive visualizations.
@@ -1365,6 +1368,8 @@ class BacktestBase(ABC):
         saved_files = {}
         
         if save_dir:
+            if path_suffix:
+                save_dir = os.path.join(save_dir, path_suffix)
             Path(save_dir).mkdir(parents=True, exist_ok=True)
         
         # 1. Performance Overview
@@ -1375,7 +1380,7 @@ class BacktestBase(ABC):
         # 2. Trade Analysis
         if self.trades:
             saved_files['trade_analysis'] = self._plot_trade_analysis(
-                results, save_dir, show_plots
+                results, save_dir, show_plots, path_suffix
             )
         
         # 3. Risk Analysis
@@ -1494,7 +1499,8 @@ class BacktestBase(ABC):
         self, 
         results: Dict,
         save_dir: Optional[str] = None,
-        show_plots: bool = True
+        show_plots: bool = True,
+        path_suffix: Optional[str] = None
     ) -> Optional[str]:
         """Create trade analysis plots."""
         if not self.trades:
@@ -1555,6 +1561,8 @@ class BacktestBase(ABC):
         
         file_path = None
         if save_dir:
+            if path_suffix:
+                save_dir = os.path.join(save_dir, path_suffix)
             file_path = Path(save_dir) / 'trade_analysis.png'
             plt.savefig(file_path, dpi=300, bbox_inches='tight')
         
@@ -1569,7 +1577,8 @@ class BacktestBase(ABC):
         self, 
         results: Dict,
         save_dir: Optional[str] = None,
-        show_plots: bool = True
+        show_plots: bool = True,
+        path_suffix: Optional[str] = None
     ) -> Optional[str]:
         """Create risk analysis plots."""
         if not self.equity_curve:
@@ -1628,6 +1637,8 @@ class BacktestBase(ABC):
         
         file_path = None
         if save_dir:
+            if path_suffix:
+                save_dir = os.path.join(save_dir, path_suffix)
             file_path = Path(save_dir) / 'risk_analysis.png'
             plt.savefig(file_path, dpi=300, bbox_inches='tight')
         
@@ -1642,7 +1653,8 @@ class BacktestBase(ABC):
         self, 
         results: Dict,
         save_dir: Optional[str] = None,
-        show_plots: bool = True
+        show_plots: bool = True,
+        path_suffix: Optional[str] = None
     ) -> Optional[str]:
         """Create monthly performance heatmap."""
         if not self.trades:
@@ -1689,6 +1701,8 @@ class BacktestBase(ABC):
         
         file_path = None
         if save_dir:
+            if path_suffix:
+                save_dir = os.path.join(save_dir, path_suffix)
             file_path = Path(save_dir) / 'monthly_heatmap.png'
             plt.savefig(file_path, dpi=300, bbox_inches='tight')
         
@@ -1703,7 +1717,8 @@ class BacktestBase(ABC):
         self, 
         results: Dict,
         save_dir: Optional[str] = None,
-        show_plots: bool = True
+        show_plots: bool = True,
+        path_suffix: Optional[str] = None
     ) -> Optional[str]:
         """Create trade distribution analysis."""
         if not self.trades:
@@ -1758,6 +1773,8 @@ class BacktestBase(ABC):
         
         file_path = None
         if save_dir:
+            if path_suffix:
+                save_dir = os.path.join(save_dir, path_suffix)
             file_path = Path(save_dir) / 'trade_distribution.png'
             plt.savefig(file_path, dpi=300, bbox_inches='tight')
         
@@ -1774,7 +1791,8 @@ class BacktestBase(ABC):
         export_dir: str,
         include_trades: bool = True,
         include_equity_curve: bool = True,
-        include_report: bool = True
+        include_report: bool = True,
+        path_suffix: Optional[str] = None
     ) -> Dict[str, str]:
         """
         Export all results to files.
@@ -1798,6 +1816,8 @@ class BacktestBase(ABC):
             Dictionary of exported file types and paths
         """
         export_path = Path(export_dir)
+        if path_suffix:
+            export_path = os.path.join(export_dir, path_suffix)
         export_path.mkdir(parents=True, exist_ok=True)
         
         exported_files = {}
