@@ -10,6 +10,7 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
+from sklearn.preprocessing import LabelEncoder
 
 try:
     from imblearn.over_sampling import SMOTE
@@ -67,7 +68,7 @@ class Trainer:
             self.mlflow_tracker = MLflowTracker(
                 experiment_name=mlflow_experiment,
                 tracking_uri=mlflow_tracking_uri,
-                enable_tracking=True
+                enable_tracking=False
             )
     
     def train(self, models, X_train, y_train, X_val=None, y_val=None):
@@ -115,6 +116,7 @@ class Trainer:
         
         # Scale features
         if self.use_scaler:
+            print(f"\nScaling features...")
             self.scaler = StandardScaler()
             X_train_scaled = self.scaler.fit_transform(X_train)
             if X_val is not None:
@@ -138,6 +140,8 @@ class Trainer:
                 print(f"\n✓ Applying SMOTE (imbalance ratio: {imbalance_ratio:.2f})")
                 smote = SMOTE(random_state=42)
                 X_train_scaled, y_train = smote.fit_resample(X_train_scaled, y_train)
+                # Ensure y_train remains integer (SMOTE might convert to float)
+                y_train = y_train.astype(np.int32)
                 print(f"  Resampled size: {len(X_train_scaled):,}")
         
         # Train each model
@@ -145,6 +149,9 @@ class Trainer:
         start_time = time.time()
         
         for model_name in tqdm(models.keys(), desc="Training models"):
+            print(f"\n\n{'>'*70}")
+            print(f"\nTraining {model_name}...")
+            print(f"\n{'>'*70}")
             model = models[model_name]
             
             model_start = time.time()
@@ -152,16 +159,19 @@ class Trainer:
             model_time = time.time() - model_start
             
             # Evaluate on training set
+            print(f"✓ Training {model_name} completed in {model_time:.2f} seconds")
             y_train_pred = model.predict(X_train_scaled)
             train_metrics = self._calculate_metrics(y_train, y_train_pred, model_time)
             
             # Evaluate on validation set if provided
+            print(f"\nEvaluating {model_name} on validation set...")
             val_metrics = {}
             if X_val is not None and y_val is not None:
                 y_val_pred = model.predict(X_val_scaled)
                 val_metrics = self._calculate_metrics(y_val, y_val_pred)
             
             # Optimize threshold if requested
+            print(f"\nOptimizing threshold for {model_name}...")
             optimal_threshold = 0.5
             if self.optimize_threshold and hasattr(model, 'predict_proba'):
                 if X_val is not None and y_val is not None:
@@ -170,6 +180,8 @@ class Trainer:
                     )
             
             # Store results
+            print(f"✓ {model_name}: Train Acc={train_metrics['accuracy']:.4f}, "
+                  f"F1={train_metrics['f1']:.4f}, Time={model_time:.2f}s")
             self.results[model_name] = {
                 'model': model,
                 'train_metrics': train_metrics,

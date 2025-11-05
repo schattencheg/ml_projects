@@ -7,14 +7,24 @@ Handles model creation, loading, and saving of pretrained models.
 import os
 import joblib
 from datetime import datetime
+from src.ModelConfig import get_model_config
+import multiprocessing
 from sklearn.linear_model import LogisticRegression, RidgeClassifier
-from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 import xgboost as xgb
 import lightgbm as lgb
+
+# Import centralized model configuration
+try:
+    from src.ModelConfig import get_model_config
+    MODEL_CONFIG_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: ModelConfig not available: {e}")
+    MODEL_CONFIG_AVAILABLE = False
 
 # Import neural networks manager
 try:
@@ -51,6 +61,12 @@ class ModelsManager:
         self.models_dir = models_dir
         os.makedirs(models_dir, exist_ok=True)
         
+        # Get centralized model configuration
+        if MODEL_CONFIG_AVAILABLE:
+            self.model_config_manager = get_model_config()
+        else:
+            raise ImportError("ModelConfig is required but not available")
+        
         # Initialize neural networks manager if available and requested
         self.neural_networks_manager = None
         if include_neural_networks and NEURAL_NETWORKS_AVAILABLE:
@@ -59,63 +75,6 @@ class ModelsManager:
                 epochs=epochs,
                 batch_size=batch_size
             )
-        
-        # Model configuration
-        self.model_config = {
-            'logistic_regression': {
-                'enabled': True,
-                'class': LogisticRegression,
-                'params': {'max_iter': 1000, 'random_state': 42, 'class_weight': 'balanced'}
-            },
-            'ridge_classifier': {
-                'enabled': True,
-                'class': RidgeClassifier,
-                'params': {'random_state': 42, 'class_weight': 'balanced'}
-            },
-            'naive_bayes': {
-                'enabled': True,
-                'class': GaussianNB,
-                'params': {}
-            },
-            'decision_tree': {
-                'enabled': True,
-                'class': DecisionTreeClassifier,
-                'params': {'max_depth': 10, 'random_state': 42, 'class_weight': 'balanced'}
-            },
-            'random_forest': {
-                'enabled': True,
-                'class': RandomForestClassifier,
-                'params': {'n_estimators': 100, 'max_depth': 10, 'random_state': 42, 
-                          'n_jobs': -1, 'class_weight': 'balanced'}
-            },
-            'gradient_boosting': {
-                'enabled': False,
-                'class': GradientBoostingClassifier,
-                'params': {'n_estimators': 100, 'max_depth': 5, 'random_state': 42}
-            },
-            'knn': {
-                'enabled': False,
-                'class': KNeighborsClassifier,
-                'params': {'n_neighbors': 5, 'n_jobs': -1}
-            },
-            'svm': {
-                'enabled': False,
-                'class': SVC,
-                'params': {'kernel': 'rbf', 'random_state': 42, 'probability': True, 'class_weight': 'balanced'}
-            },
-            'xgboost': {
-                'enabled': True,
-                'class': xgb.XGBClassifier,
-                'params': {'n_estimators': 100, 'max_depth': 5, 'random_state': 42, 
-                          'tree_method': 'hist', 'n_jobs': -1}
-            },
-            'lightgbm': {
-                'enabled': True,
-                'class': lgb.LGBMClassifier,
-                'params': {'n_estimators': 100, 'max_depth': 5, 'random_state': 42, 
-                          'n_jobs': -1, 'verbose': -1}
-            }
-        }
     
     def create_models(self, enabled_only=True, include_neural_networks=True):
         """
@@ -134,8 +93,8 @@ class ModelsManager:
         """
         models = {}
         
-        # Create traditional ML models
-        for name, config in self.model_config.items():
+        # Create traditional ML models from centralized config
+        for name, config in self.model_config_manager.traditional_models.items():
             if enabled_only and not config['enabled']:
                 continue
             
@@ -260,7 +219,7 @@ class ModelsManager:
             print(f"✓ Loaded metadata")
         
         # Load models
-        for name in self.model_config.keys():
+        for name in self.model_config_manager.model_names.keys():
             filepath = os.path.join(load_dir, f"{name}.joblib")
             if os.path.exists(filepath):
                 models[name] = joblib.load(filepath)
@@ -337,12 +296,8 @@ class ModelsManager:
         enabled : bool
             Whether to enable or disable
         """
-        if model_name in self.model_config:
-            self.model_config[model_name]['enabled'] = enabled
-            status = "enabled" if enabled else "disabled"
-            print(f"✓ Model {model_name} {status}")
-        else:
-            print(f"✗ Model {model_name} not found")
+        # Delegate to centralized config
+        self.model_config_manager.enable_model(model_name, enabled)
     
     def get_enabled_models(self, include_neural_networks=True):
         """
@@ -357,10 +312,11 @@ class ModelsManager:
         --------
         list : List of enabled model names
         """
-        enabled_models = [name for name, config in self.model_config.items() if config['enabled']]
+        # Get from centralized config
+        enabled_models = self.model_config_manager.get_enabled_traditional_models()
         
-        if include_neural_networks and self.neural_networks_manager is not None:
-            enabled_models.extend(self.neural_networks_manager.get_enabled_models())
+        if include_neural_networks:
+            enabled_models.extend(self.model_config_manager.get_enabled_neural_network_models())
         
         return enabled_models
     
@@ -375,10 +331,8 @@ class ModelsManager:
         enabled : bool
             Whether to enable or disable
         """
-        if self.neural_networks_manager is not None:
-            self.neural_networks_manager.enable_model(model_name, enabled)
-        else:
-            print(f"✗ Neural networks not available")
+        # Delegate to centralized config
+        self.model_config_manager.enable_model(model_name, enabled)
     
     def configure_neural_networks(self, sequence_length=None, epochs=None, batch_size=None):
         """
@@ -406,33 +360,5 @@ class ModelsManager:
     
     def print_config(self):
         """Print current model configuration."""
-        print(f"\n{'='*70}")
-        print(f"MODELS CONFIGURATION")
-        print(f"{'='*70}")
-        
-        enabled = []
-        disabled = []
-        
-        for name, config in self.model_config.items():
-            if config['enabled']:
-                enabled.append(name)
-            else:
-                disabled.append(name)
-        
-        print(f"\nTraditional ML Models:")
-        print(f"Enabled models ({len(enabled)}):")
-        for name in enabled:
-            print(f"  ✓ {name}")
-        
-        if disabled:
-            print(f"\nDisabled models ({len(disabled)}):")
-            for name in disabled:
-                print(f"  ✗ {name}")
-        
-        # Print neural networks configuration
-        if self.neural_networks_manager is not None:
-            self.neural_networks_manager.print_config()
-        else:
-            print(f"\nNeural Networks: Not available")
-        
-        print(f"{'='*70}\n")
+        # Delegate to centralized config
+        self.model_config_manager.print_config()

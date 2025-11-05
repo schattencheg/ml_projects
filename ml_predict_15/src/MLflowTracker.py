@@ -123,7 +123,7 @@ class MLflowTracker:
             test_uri = f"http://localhost:{port}"
             try:
                 test_client = MlflowClient(test_uri)
-                test_client.list_experiments()
+                experiments = test_client.search_experiments()
                 self.tracking_uri = test_uri
                 print(f"✓ Auto-detected MLflow server at {test_uri}")
                 return

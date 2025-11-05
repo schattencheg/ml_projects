@@ -19,7 +19,7 @@ class FeaturesGenerator:
         """Initialize FeaturesGenerator."""
         pass
     
-    def generate_features(self, df, method='classical', **kwargs):
+    def generate_features(self, df, method='classical', target_bars=15, target_pct=3.0, **kwargs):
         """
         Generate features using specified method.
         
@@ -40,6 +40,12 @@ class FeaturesGenerator:
         df = df.copy()
         df.columns = df.columns.str.lower()
         
+        df = self.create_target(df, 
+                        target_bars=target_bars, 
+                        target_pct=target_pct, 
+                        method='classification', 
+                        **kwargs)
+
         if method == 'classical':
             return self.add_features(df)
         elif method == 'crypto':
@@ -80,12 +86,13 @@ class FeaturesGenerator:
         ) * 100
         
         if method == 'classification':
-            # Three classes: 1 (up), 0 (neutral), -1 (down)
+            # Three classes: down, neutral, up
+            # Map to [0, 1, 2] for sklearn compatibility
             target_up = (df[f'pct_change_{target_bars}'] >= target_pct)
             target_down = (df[f'pct_change_{target_bars}'] <= -target_pct)
-            df['target'] = 0
-            df.loc[target_up, 'target'] = 1
-            df.loc[target_down, 'target'] = -1
+            df['target'] = 1  # neutral (default)
+            df.loc[target_up, 'target'] = 2  # up
+            df.loc[target_down, 'target'] = 0  # down
         
         elif method == 'binary':
             # Two classes: 1 (up), 0 (not up)
@@ -103,13 +110,53 @@ class FeaturesGenerator:
     def add_features(self, df):
         #Add classical technical indicators.
         df.columns = df.columns.str.lower()
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = self.add_sma(df)
         df = self.add_rsi(df)
         df = self.add_stochastic(df)
         df = self.add_bollinger(df)
         df = self.add_float(df)
         df = self.clear_data(df)
-        return df
+
+        # ==================== TRAIN/VAL/TEST SPLIT ====================
+        non_feature_cols = ['timestamp', 'target', 'open', 'high', 'low', 'close', 'volume']
+        non_feature_cols += [x for x in df.columns if 'pct_change' in x]
+        feature_cols = [col for col in df.columns if col not in non_feature_cols]
+
+        test_start_date = df['timestamp'].max() - pd.DateOffset(months=1)
+        val_start_date = df['timestamp'].max() - pd.DateOffset(months=2)
+        
+        train_data = df[df['timestamp'] < val_start_date]
+        val_data = df[(df['timestamp'] >= val_start_date) & (df['timestamp'] < test_start_date)]
+        test_data = df[df['timestamp'] >= test_start_date]
+        
+        X_train, y_train = train_data[feature_cols], train_data['target']
+        X_val, y_val = val_data[feature_cols], val_data['target']
+        X_test, y_test = test_data[feature_cols], test_data['target']
+        
+        print(f"\n{'='*70}")
+        print(f"CLASSICAL FEATURE ENGINEERING SUMMARY")
+        print(f"{'='*70}")
+        print(f"Total features created: {len(feature_cols)}")
+        print(f"\nData splits:")
+        print(f"  Training:   {len(X_train):,} samples ({len(X_train)/len(df)*100:.1f}%)")
+        print(f"  Validation: {len(X_val):,} samples ({len(X_val)/len(df)*100:.1f}%)")
+        print(f"  Test:       {len(X_test):,} samples ({len(X_test)/len(df)*100:.1f}%)")
+        print(f"\nTarget distribution (Training):")
+        print(f"  Class 0 (No rise): {(y_train==0).sum():,} ({(y_train==0).sum()/len(y_train)*100:.1f}%)")
+        print(f"  Class 1 (Rise):    {(y_train==1).sum():,} ({(y_train==1).sum()/len(y_train)*100:.1f}%)")
+        print(f"{'='*70}\n")
+        
+        return {
+            'X_train': X_train, 'y_train': y_train,
+            'X_val': X_val, 'y_val': y_val,
+            'X_test': X_test, 'y_test': y_test,
+            'feature_names': feature_cols,
+            'train_data': train_data,
+            'val_data': val_data,
+            'test_data': test_data,
+            'df': df
+        }
     
     def add_sma(self, df, window=10):
         #Add Simple Moving Average features.
@@ -224,9 +271,17 @@ class FeaturesGenerator:
     def returnificate(self, df):
         """Add return features for OHLC."""
         df['ret_open'] = np.log(df['open'] / df['open'].shift(1))
+        df['ret_open'] = df['ret_open'].replace([np.inf, -np.inf], np.nan).fillna(0)
+        
         df['ret_high'] = np.log(df['high'] / df['high'].shift(1))
+        df['ret_high'] = df['ret_high'].replace([np.inf, -np.inf], np.nan).fillna(0)
+        
         df['ret_low'] = np.log(df['low'] / df['low'].shift(1))
+        df['ret_low'] = df['ret_low'].replace([np.inf, -np.inf], np.nan).fillna(0)
+        
         df['ret_close'] = np.log(df['close'] / df['close'].shift(1))
+        df['ret_close'] = df['ret_close'].replace([np.inf, -np.inf], np.nan).fillna(0)
+        
         return df
     
     # ==================== CRYPTO FEATURES ====================
@@ -253,24 +308,23 @@ class FeaturesGenerator:
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = df.sort_values('timestamp').reset_index(drop=True)
         
-        # ==================== TARGET CREATION ====================
-        df['price_change_pct'] = (df['close'].shift(-1) - df['close']) / df['close']
-        df['target'] = (df['price_change_pct'] >= price_change_threshold).astype(int)
-        df = df.dropna(subset=['price_change_pct'])
-        
         # ==================== PRICE-BASED FEATURES ====================
         
         price_features = {}
         
         # Returns and log returns
         for period in [1, 3, 6, 12, 24]:
-            price_features[f'return_{period}h'] = df['close'].pct_change(period)
-            price_features[f'log_return_{period}h'] = np.log(df['close'] / df['close'].shift(period))
+            return_period = f'return_{period}h'
+            log_return_period = f'log_return_{period}h'
+            price_features[return_period] = df['close'].pct_change(period)
+            price_features[log_return_period] = np.log(df['close'] / df['close'].shift(period))
         
         # Price momentum
         for period in [3, 6, 12, 24, 48]:
-            price_features[f'momentum_{period}h'] = df['close'] - df['close'].shift(period)
-            price_features[f'momentum_pct_{period}h'] = (df['close'] - df['close'].shift(period)) / df['close'].shift(period)
+            momentum_period = f'momentum_{period}h'
+            momentum_pct_period = f'momentum_pct_{period}h'
+            price_features[momentum_period] = df['close'] - df['close'].shift(period)
+            price_features[momentum_pct_period] = (df['close'] - df['close'].shift(period)) / df['close'].shift(period)
         
         # High-Low spread
         price_features['hl_spread'] = df['high'] - df['low']

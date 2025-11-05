@@ -423,7 +423,8 @@ class BacktestBase(ABC):
         df: pd.DataFrame = None,
         save_dir: Optional[str] = None,
         show_plots: bool = True,
-        model_name: Optional[str] = None
+        model_name: Optional[str] = None,
+        path_suffix: Optional[str] = None
     ) -> Dict[str, str]:
         """
         Create comprehensive visualization suite with separate interactive HTML files.
@@ -466,9 +467,13 @@ class BacktestBase(ABC):
         saved_files = {}
         
         if save_dir:
+            if path_suffix:
+                save_dir = os.path.join(save_dir, path_suffix)
             Path(save_dir).mkdir(parents=True, exist_ok=True)
         else:
             save_dir = 'backtest_results'
+            if path_suffix:
+                save_dir = os.path.join(save_dir, path_suffix)
             Path(save_dir).mkdir(parents=True, exist_ok=True)
         
         print("\n" + "="*70)

@@ -21,6 +21,14 @@ from tensorflow.keras.utils import to_categorical
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning)
 
+# Import centralized model configuration
+try:
+    from src.ModelConfig import get_model_config
+    MODEL_CONFIG_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: ModelConfig not available: {e}")
+    MODEL_CONFIG_AVAILABLE = False
+
 # Set TensorFlow to use CPU only to avoid GPU memory issues during development
 tf.config.set_visible_devices([], 'GPU')
 
@@ -41,6 +49,8 @@ class KerasClassifierWrapper(BaseEstimator, ClassifierMixin):
         self.model = None
         self.scaler = MinMaxScaler()
         self.classes_ = None
+        self.label_map_ = None  # Store label mapping for inverse transform
+        self.n_samples_dropped_ = 0  # Number of samples dropped during sequence creation
         
     def _create_sequences(self, X, y=None):
         """Create sequences for time series data."""
@@ -68,11 +78,40 @@ class KerasClassifierWrapper(BaseEstimator, ClassifierMixin):
         # Store classes
         self.classes_ = np.unique(y)
         
+        # Ensure labels are integers (required for sparse_categorical_crossentropy)
+        # Map labels to 0, 1, 2, ... if they aren't already
+        if not np.issubdtype(y.dtype, np.integer):
+            y = y.astype(np.int32)
+        
+        # If labels are not starting from 0, remap them
+        unique_labels = np.unique(y)
+        if not np.array_equal(unique_labels, np.arange(len(unique_labels))):
+            self.label_map_ = {idx: label for idx, label in enumerate(unique_labels)}
+            label_map = {label: idx for idx, label in enumerate(unique_labels)}
+            y = np.array([label_map[label] for label in y])
+        else:
+            self.label_map_ = None
+        
         # Scale features
         X_scaled = self.scaler.fit_transform(X)
         
         # Create sequences
         X_seq, y_seq = self._create_sequences(X_scaled, y)
+        
+        # Store how many samples were dropped
+        self.n_samples_dropped_ = len(y) - len(y_seq)
+        
+        # Ensure y_seq is int32 and validate labels
+        y_seq = y_seq.astype(np.int32)
+        unique_y_seq = np.unique(y_seq)
+        num_classes = len(unique_y_seq)
+        
+        # Validate that labels are 0, 1, 2, ... n-1
+        if not np.array_equal(unique_y_seq, np.arange(num_classes)):
+            raise ValueError(
+                f"Labels must be consecutive integers starting from 0. "
+                f"Got: {unique_y_seq}, expected: {np.arange(num_classes)}"
+            )
         
         # Build model
         input_shape = (self.sequence_length, X.shape[1])
@@ -123,7 +162,22 @@ class KerasClassifierWrapper(BaseEstimator, ClassifierMixin):
         
         # Predict
         predictions = self.model.predict(X_seq, verbose=0)
-        return np.argmax(predictions, axis=1)
+        predicted_indices = np.argmax(predictions, axis=1)
+        
+        # Map back to original labels if needed
+        if self.label_map_ is not None:
+            predicted_indices = np.array([self.label_map_[idx] for idx in predicted_indices])
+        
+        # Pad predictions to match original input length
+        # Use the most common class for the dropped samples
+        if self.n_samples_dropped_ > 0:
+            # Use the mode of predictions for padding
+            pad_value = np.bincount(predicted_indices).argmax()
+            padded_predictions = np.full(len(X), pad_value, dtype=predicted_indices.dtype)
+            padded_predictions[self.n_samples_dropped_:] = predicted_indices
+            return padded_predictions
+        
+        return predicted_indices
     
     def predict_proba(self, X):
         """Predict class probabilities."""
@@ -137,6 +191,15 @@ class KerasClassifierWrapper(BaseEstimator, ClassifierMixin):
         
         # Predict probabilities
         probabilities = self.model.predict(X_seq, verbose=0)
+        
+        # Pad probabilities to match original input length
+        if self.n_samples_dropped_ > 0:
+            # Create uniform probabilities for dropped samples
+            n_classes = probabilities.shape[1]
+            uniform_proba = np.full((len(X), n_classes), 1.0 / n_classes)
+            uniform_proba[self.n_samples_dropped_:] = probabilities
+            return uniform_proba
+        
         return probabilities
 
 
@@ -162,7 +225,15 @@ class NeuralNetworksManager:
         self.epochs = epochs
         self.batch_size = batch_size
         
-        # Model configurations
+        # Get centralized model configuration
+        if MODEL_CONFIG_AVAILABLE:
+            self.model_config_manager = get_model_config()
+            # Set build_fn references in centralized config
+            self._setup_build_functions()
+        else:
+            raise ImportError("ModelConfig is required but not available")
+        
+        # Legacy: Keep reference for backward compatibility (deprecated)
         self.model_configs = {
             # 1D-CNN Variants
             'cnn_simple': {
@@ -231,6 +302,29 @@ class NeuralNetworksManager:
             }
         }
     
+    def _setup_build_functions(self):
+        """Set build_fn references in centralized config for neural network models."""
+        # Map build functions to centralized config
+        build_fn_mapping = {
+            'cnn_simple': self._build_cnn_simple,
+            'cnn_deep': self._build_cnn_deep,
+            'cnn_residual': self._build_cnn_residual,
+            'cnn_attention': self._build_cnn_attention,
+            'cnn_dilated': self._build_cnn_dilated,
+            'lstm_simple': self._build_lstm_simple,
+            'lstm_bidirectional': self._build_lstm_bidirectional,
+            'lstm_stacked': self._build_lstm_stacked,
+            'lstm_attention': self._build_lstm_attention,
+            'lstm_cnn_hybrid': self._build_lstm_cnn_hybrid,
+            'gru_simple': self._build_gru_simple,
+            'gru_bidirectional': self._build_gru_bidirectional
+        }
+        
+        # Set build_fn in centralized config
+        for model_name, build_fn in build_fn_mapping.items():
+            if model_name in self.model_config_manager.neural_network_models:
+                self.model_config_manager.neural_network_models[model_name]['build_fn'] = build_fn
+    
     # ==================== 1D-CNN VARIANTS ====================
     
     def _build_cnn_simple(self, input_shape, **kwargs):
@@ -249,7 +343,7 @@ class NeuralNetworksManager:
             layers.GlobalMaxPooling1D(),
             layers.Dense(50, activation='relu'),
             layers.Dropout(0.5),
-            layers.Dense(2, activation='softmax')
+            layers.Dense(3, activation='softmax')  # 3 classes
         ])
         return model
     
@@ -278,7 +372,7 @@ class NeuralNetworksManager:
             layers.Dropout(0.5),
             layers.Dense(50, activation='relu'),
             layers.Dropout(0.3),
-            layers.Dense(2, activation='softmax')
+            layers.Dense(3, activation='softmax')  # 3 classes
         ])
         return model
     
@@ -314,7 +408,7 @@ class NeuralNetworksManager:
         x = layers.GlobalMaxPooling1D()(x)
         x = layers.Dense(50, activation='relu')(x)
         x = layers.Dropout(0.5)(x)
-        outputs = layers.Dense(2, activation='softmax')(x)
+        outputs = layers.Dense(3, activation='softmax')  # 3 classes(x)
         
         model = models.Model(inputs, outputs)
         return model
@@ -344,7 +438,7 @@ class NeuralNetworksManager:
         # Output layers
         x = layers.Dense(50, activation='relu')(x)
         x = layers.Dropout(0.5)(x)
-        outputs = layers.Dense(2, activation='softmax')(x)
+        outputs = layers.Dense(3, activation='softmax')  # 3 classes(x)
         
         model = models.Model(inputs, outputs)
         return model
@@ -365,7 +459,7 @@ class NeuralNetworksManager:
             layers.GlobalMaxPooling1D(),
             layers.Dense(50, activation='relu'),
             layers.Dropout(0.5),
-            layers.Dense(2, activation='softmax')
+            layers.Dense(3, activation='softmax')  # 3 classes
         ])
         return model
     
@@ -380,7 +474,7 @@ class NeuralNetworksManager:
             layers.Dropout(0.3),
             layers.Dense(25, activation='relu'),
             layers.Dropout(0.3),
-            layers.Dense(2, activation='softmax')
+            layers.Dense(3, activation='softmax')  # 3 classes
         ])
         return model
     
@@ -393,7 +487,7 @@ class NeuralNetworksManager:
             layers.Dropout(0.3),
             layers.Dense(25, activation='relu'),
             layers.Dropout(0.3),
-            layers.Dense(2, activation='softmax')
+            layers.Dense(3, activation='softmax')  # 3 classes
         ])
         return model
     
@@ -408,7 +502,7 @@ class NeuralNetworksManager:
             layers.Dropout(0.3),
             layers.Dense(25, activation='relu'),
             layers.Dropout(0.3),
-            layers.Dense(2, activation='softmax')
+            layers.Dense(3, activation='softmax')  # 3 classes
         ])
         return model
     
@@ -434,7 +528,7 @@ class NeuralNetworksManager:
         # Output layers
         x = layers.Dense(25, activation='relu')(attended)
         x = layers.Dropout(0.3)(x)
-        outputs = layers.Dense(2, activation='softmax')(x)
+        outputs = layers.Dense(3, activation='softmax')  # 3 classes(x)
         
         model = models.Model(inputs, outputs)
         return model
@@ -456,7 +550,7 @@ class NeuralNetworksManager:
             
             layers.Dense(25, activation='relu'),
             layers.Dropout(0.3),
-            layers.Dense(2, activation='softmax')
+            layers.Dense(3, activation='softmax')  # 3 classes
         ])
         return model
     
@@ -471,7 +565,7 @@ class NeuralNetworksManager:
             layers.Dropout(0.3),
             layers.Dense(25, activation='relu'),
             layers.Dropout(0.3),
-            layers.Dense(2, activation='softmax')
+            layers.Dense(3, activation='softmax')  # 3 classes
         ])
         return model
     
@@ -484,7 +578,7 @@ class NeuralNetworksManager:
             layers.Dropout(0.3),
             layers.Dense(25, activation='relu'),
             layers.Dropout(0.3),
-            layers.Dense(2, activation='softmax')
+            layers.Dense(3, activation='softmax')  # 3 classes
         ])
         return model
     
@@ -505,7 +599,8 @@ class NeuralNetworksManager:
         """
         models = {}
         
-        for name, config in self.model_configs.items():
+        # Create from centralized config
+        for name, config in self.model_config_manager.neural_network_models.items():
             if enabled_only and not config['enabled']:
                 continue
             
@@ -528,47 +623,27 @@ class NeuralNetworksManager:
     
     def enable_model(self, model_name, enabled=True):
         """Enable or disable a neural network model."""
-        if model_name in self.model_configs:
-            self.model_configs[model_name]['enabled'] = enabled
-            status = "enabled" if enabled else "disabled"
-            print(f"✓ Neural network {model_name} {status}")
-        else:
-            print(f"✗ Neural network {model_name} not found")
+        # Delegate to centralized config
+        self.model_config_manager.enable_model(model_name, enabled)
     
     def get_enabled_models(self):
         """Get list of enabled neural network model names."""
-        return [name for name, config in self.model_configs.items() if config['enabled']]
+        # Get from centralized config
+        return self.model_config_manager.get_enabled_neural_network_models()
     
     def print_config(self):
         """Print current neural network configuration."""
+        # Print neural network specific settings
         print(f"\n{'='*70}")
-        print(f"NEURAL NETWORKS CONFIGURATION")
+        print(f"NEURAL NETWORKS TRAINING CONFIGURATION")
         print(f"{'='*70}")
-        
-        enabled = []
-        disabled = []
-        
-        for name, config in self.model_configs.items():
-            if config['enabled']:
-                enabled.append((name, config['description']))
-            else:
-                disabled.append((name, config['description']))
-        
-        print(f"\nEnabled neural networks ({len(enabled)}):")
-        for name, desc in enabled:
-            print(f"  ✓ {name}: {desc}")
-        
-        if disabled:
-            print(f"\nDisabled neural networks ({len(disabled)}):")
-            for name, desc in disabled:
-                print(f"  ✗ {name}: {desc}")
-        
-        print(f"\nConfiguration:")
         print(f"  • Sequence length: {self.sequence_length}")
         print(f"  • Epochs: {self.epochs}")
         print(f"  • Batch size: {self.batch_size}")
-        
         print(f"{'='*70}\n")
+        
+        # Note: Model enable/disable status is managed by centralized ModelConfig
+        # Use model_config_manager.print_config() to see full configuration
 
 
 class CryptocurrencyGAN:

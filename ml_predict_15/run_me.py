@@ -11,6 +11,8 @@ Uses the new class-based architecture:
 """
 
 import os
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,9 +40,10 @@ PATH_MODELS = "models"
 os.environ["PATH_TRAIN"] = PATH_TRAIN
 os.environ["PATH_TEST"] = PATH_TEST
 os.environ["PATH_MODELS"] = PATH_MODELS
+path_suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
 
 
-def _create_models_comparison_plot(all_results, all_equity_curves):
+def _create_models_comparison_plot(all_results, all_equity_curves, path_suffix):
     """
     Create a comprehensive comparison plot for all tested models.
     
@@ -167,9 +170,10 @@ def _create_models_comparison_plot(all_results, all_equity_curves):
     
     # Save plot
     output_dir = 'backtest_results'
+    if path_suffix:
+        output_dir = os.path.join(output_dir, path_suffix)
     os.makedirs(output_dir, exist_ok=True)
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filepath = os.path.join(output_dir, f'models_comparison_{timestamp}.png')
+    filepath = os.path.join(output_dir, f'models_comparison.png')
     plt.savefig(filepath, dpi=300, bbox_inches='tight')
     print(f"\n✓ Comparison plot saved to: {filepath}")
     
@@ -356,17 +360,16 @@ def _create_ohlc_with_trades_plot(df_ohlc, trades_df, model_name):
     fig.update_yaxes(title_text="Volume", row=2, col=1)
     
     # Save as HTML
-    output_dir = 'backtest_results'
+    output_dir = os.path.join('backtest_results', path_suffix)
     os.makedirs(output_dir, exist_ok=True)
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filepath = os.path.join(output_dir, f'ohlc_trades_{model_name}_{timestamp}.html')
+    filepath = os.path.join(output_dir, f'ohlc_trades_{model_name}.html')
     fig.write_html(filepath)
     fig.show()
     print(f"  ✓ Interactive OHLC chart saved to: {filepath}")
     
     return filepath
 
-def main_train(features_method='crypto'):
+def main_train(features_method='crypto', target_bars=45, target_pct=1.0):
     """Main execution function."""
     
     print("="*80)
@@ -391,13 +394,18 @@ def main_train(features_method='crypto'):
     print("STEP 2: GENERATING FEATURES")
     print("="*80)
     
-    fg = FeaturesGenerator()
     top_features = ['atr_pct_28', 'atr_pct_14', 'volatility_20h', 'hl_spread_pct', 'volatility_50h', 'shadow_ratio', 'volatility_5h', 'volatility_10h', 'volume_skew_50', 'vpt', 'volume_skew_10', 'volume_skew_20',
         'price_to_ema_200', 'momentum_pct_48h', 'price_to_ema_100', 'momentum_pct_3h', 'price_to_sma_100', 'bb_width_20', 'bb_width_50', 'price_to_ema_20', 'volume_sma_5', 'stoch_14', 'price_to_sma_200',
         'price_to_ema_50', 'volume_sma_50', 'stoch_signal_28', 'mfi_14', 'price_to_sma_10', 'momentum_pct_6h','price_to_ema_10']
+    fg = FeaturesGenerator()
     
     print("Generating features...")
-    features_generated = fg.generate_features(df_train, method=features_method)
+    features_generated = fg.generate_features(df_train,
+                                method=features_method,
+                                target_bars=target_bars,
+                                target_pct=target_pct)
+    if features_method == 'crypto' or True:
+        top_features = features_generated['X_train'].columns
     df_train_features = features_generated['X_train'][top_features]
     df_train_target = features_generated['y_train']
     df_test_features = features_generated['X_test'][top_features]
@@ -417,7 +425,8 @@ def main_train(features_method='crypto'):
     print(f"  Test samples: {len(df_test_with_target):,}")
     
     # Separate features and target
-    exclude_cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'target', 'pct_change_15']
+    exclude_cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'target']
+    exclude_cols += [x for x in df_train_with_target.columns if 'pct_change' in x]
     feature_cols = [col for col in df_train_with_target.columns if col not in exclude_cols]
     
     X_train = df_train_with_target[feature_cols]
@@ -456,14 +465,16 @@ def main_train(features_method='crypto'):
     print("STEP 5: TRAINING MODELS")
     print("="*80)
     
+    print("Creating trainer...")
     trainer = Trainer(
         use_smote=True,           # Apply SMOTE for imbalanced data
         optimize_threshold=True,  # Optimize probability threshold
-        use_scaler=True,         # Scale features
-        use_mlflow=True,         # Enable MLflow tracking
+        use_scaler=True,          # Scale features
+        use_mlflow=False,         # Enable MLflow tracking
         mlflow_experiment="ml_predict_15/crypto_prediction_with_neural_networks",
         mlflow_tracking_uri="http://localhost:5000"  # Auto-detects if server running
     )
+    print("✓ Trainer created")
     
     trained_models, scaler, train_results, best_model_name = trainer.train(
         models=models,
@@ -479,14 +490,13 @@ def main_train(features_method='crypto'):
     print("STEP 6: SAVING MODELS")
     print("="*80)
     
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     saved_paths = models_manager.save_models(
         models=trained_models,
         scaler=scaler,
-        suffix=timestamp
+        suffix=path_suffix
     )
     
-    print(f"\n✓ Models saved with timestamp: {timestamp}")
+    print(f"\n✓ Models saved with timestamp: {path_suffix}")
     
     # ==================== STEP 7: TEST MODELS ====================
     print("\n" + "="*80)
@@ -514,14 +524,14 @@ def main_train(features_method='crypto'):
     # Print detailed report for best model
     best_test_model = tester.get_best_model_name()
     print(f"\nDetailed report for best model: {best_test_model}")
-    tester.print_detailed_report(best_test_model, y_test, target_names=['No Rise', 'Rise'])
+    tester.print_detailed_report(best_test_model, y_test, target_names=['Down', 'Neutral', 'Up'])
     
     # ==================== STEP 8: GENERATE REPORTS ====================
     print("\n" + "="*80)
     print("STEP 8: GENERATING REPORTS")
     print("="*80)
     
-    report_manager = ReportManager(output_dir='reports')
+    report_manager = ReportManager(output_dir=os.path.join('reports', path_suffix))
     
     # Create full report with all visualizations
     full_report = report_manager.export_full_report(
@@ -529,7 +539,7 @@ def main_train(features_method='crypto'):
         test_results=test_results,
         y_test=y_test,
         filename=f"ml_report_{timestamp}",
-        target_names=['No Rise', 'Rise']
+        target_names=['Down', 'Neutral', 'Up']
     )
     
     # ==================== STEP 9: MONITOR HEALTH ====================
@@ -595,7 +605,7 @@ def main_train(features_method='crypto'):
     
     print("\n" + "="*80 + "\n")
 
-def main_backtest(features_method='crypto'):
+def main_backtest(features_method='crypto', target_bars=45, target_pct=1.0):
     """Main execution function for backtesting."""
     # Load models
     models_manager = ModelsManager(PATH_MODELS)
@@ -611,7 +621,10 @@ def main_backtest(features_method='crypto'):
         'price_to_ema_200', 'momentum_pct_48h', 'price_to_ema_100', 'momentum_pct_3h', 'price_to_sma_100', 'bb_width_20', 'bb_width_50', 'price_to_ema_20', 'volume_sma_5', 'stoch_14', 'price_to_sma_200',
         'price_to_ema_50', 'volume_sma_50', 'stoch_signal_28', 'mfi_14', 'price_to_sma_10', 'momentum_pct_6h','price_to_ema_10']
     features_response = fg.generate_features(df_test, method=features_method)
-    df_test_features = features_response['df'][['timestamp', 'open', 'high', 'low', 'close', 'volume'] + top_features]
+    necessary_columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+    if features_method != 'crypto':
+        top_features = features_response['X_train'].columns.tolist()
+    df_test_features = features_response['df'][necessary_columns + top_features]
     
     # Validate data
     print(f"\nData shape: {df_test_features.shape}")
@@ -633,17 +646,17 @@ def main_backtest(features_method='crypto'):
     print(f"RUNNING BACKTESTS FOR {len(models)} MODELS")
     print(f"{'='*80}\n")
     
-    backtester = BacktestBacktraderML(initial_cash=1000000)
-    #backtester = BacktestNoLib()
+    #backtester = BacktestBacktraderML(initial_cash=1000000)
+    backtester = BacktestNoLib()
     #backtester = BacktestBacktestingML()
     
     # Store results for all models
     all_results = {}
     all_equity_curves = {}
     plots_per_model = True
-    models = {'logistic_regression': models['logistic_regression']}
+    #models = {'logistic_regression': models['logistic_regression']}
     for i, (model_name, model) in enumerate(models.items(), 1):
-        print(f"\n{'='*80}")
+        print(f"\n\n\n{'='*80}")
         print(f"BACKTEST {i}/{len(models)}: {model_name.upper()}")
         print(f"{'='*80}")
         
@@ -701,7 +714,11 @@ def main_backtest(features_method='crypto'):
         # Create visualizations
         print(f"\nCreating visualizations for {model_name}...")
         if plots_per_model:
-            backtester.create_comprehensive_visualizations(results, df=df_test_features, show_plots=True, model_name=model_name)
+            backtester.create_comprehensive_visualizations(results, 
+                                            df=df_test_features, 
+                                            show_plots=True, 
+                                            model_name=model_name,
+                                            path_suffix=path_suffix)
             
         # Create OHLC chart with trades
         ohlc_filepath = _create_ohlc_with_trades_plot(df_test_features, trades, model_name)
@@ -712,7 +729,7 @@ def main_backtest(features_method='crypto'):
     print(f"\n{'='*80}")
     print(f"CREATING FINAL COMPARISON PLOT")
     print(f"{'='*80}")
-    _create_models_comparison_plot(all_results, all_equity_curves)
+    _create_models_comparison_plot(all_results, all_equity_curves, path_suffix=path_suffix)
     
     # Completion message
     print(f"\n{'='*80}")
@@ -726,5 +743,9 @@ def main_backtest(features_method='crypto'):
     print(f"{'='*80}")
 
 if __name__ == "__main__":
-    #main_train()
-    main_backtest()
+    #features_method = 'crypto'
+    features_method = 'classical'
+    target_bars = 45
+    target_pct = 1.0
+    #main_train(features_method=features_method, target_bars=target_bars, target_pct=target_pct)
+    main_backtest(features_method=features_method, target_bars=target_bars, target_pct=target_pct)
