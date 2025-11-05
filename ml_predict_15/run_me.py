@@ -436,6 +436,21 @@ def main_train(features_method='crypto', target_bars=45, target_pct=1.0):
     
     print(f"✓ Features prepared: {len(feature_cols)} features")
     
+    # Show class distribution
+    print(f"\n📊 Training Data Class Distribution:")
+    train_dist = y_train.value_counts().sort_index()
+    for cls, cnt in train_dist.items():
+        pct = (cnt / len(y_train)) * 100
+        class_name = ['Down', 'Neutral', 'Up'][int(cls)]
+        print(f"   Class {int(cls)} ({class_name}): {cnt:,} samples ({pct:.1f}%)")
+    
+    print(f"\n📊 Test Data Class Distribution:")
+    test_dist = y_test.value_counts().sort_index()
+    for cls, cnt in test_dist.items():
+        pct = (cnt / len(y_test)) * 100
+        class_name = ['Down', 'Neutral', 'Up'][int(cls)]
+        print(f"   Class {int(cls)} ({class_name}): {cnt:,} samples ({pct:.1f}%)")
+    
     # ==================== STEP 4: CREATE MODELS ====================
     print("\n" + "="*80)
     print("STEP 4: CREATING MODELS")
@@ -659,6 +674,28 @@ def main_backtest(features_method='crypto', target_bars=45, target_pct=1.0):
         print(f"\n\n\n{'='*80}")
         print(f"BACKTEST {i}/{len(models)}: {model_name.upper()}")
         print(f"{'='*80}")
+        
+        # DIAGNOSTIC: Check model predictions
+        X_test = df_test_features[top_features].values
+        X_test_scaled = scaler.transform(X_test)
+        test_predictions = model.predict(X_test_scaled)
+        unique, counts = np.unique(test_predictions, return_counts=True)
+        pred_dist = dict(zip(unique, counts))
+        print(f"\n📊 Prediction Distribution for {model_name}:")
+        for cls, cnt in pred_dist.items():
+            pct = (cnt / len(test_predictions)) * 100
+            class_name = ['Down', 'Neutral', 'Up'][int(cls)] if cls < 3 else f'Class{cls}'
+            print(f"   Class {cls} ({class_name}): {cnt:,} samples ({pct:.1f}%)")
+        
+        if hasattr(model, 'predict_proba'):
+            test_proba = model.predict_proba(X_test_scaled)
+            up_proba = test_proba[:, -1]  # Last class (Up)
+            print(f"\n📈 'Up' Probability Stats:")
+            print(f"   Mean: {up_proba.mean():.3f}")
+            print(f"   Max: {up_proba.max():.3f}")
+            print(f"   Samples > 0.4: {(up_proba > 0.4).sum():,} ({(up_proba > 0.4).sum() / len(up_proba) * 100:.1f}%)")
+            print(f"   Samples > 0.5: {(up_proba > 0.5).sum():,} ({(up_proba > 0.5).sum() / len(up_proba) * 100:.1f}%)")
+        print()
         
         results, trades = backtester.run_backtest(
             df = df_test_features,
