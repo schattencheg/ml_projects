@@ -1,8 +1,11 @@
 import optuna
 import tensorflow as tf
-from tensorflow.keras import optimizers
-from sklearn.metrics import accuracy_score
+from tensorflow.keras import optimizers, layers, models
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 from .cnn_architectures import CNNArchitectures
 
 
@@ -16,17 +19,86 @@ class HyperparameterOptimizer:
         Initialize optimizer with training and validation data.
         
         Args:
-            X_train: Training features
-            y_train: Training labels
-            X_val: Validation features
-            y_val: Validation labels
+            X_train: Training features (will be converted to float32 numpy array)
+            y_train: Training labels (will be converted to int32 numpy array)
+            X_val: Validation features (will be converted to float32 numpy array)
+            y_val: Validation labels (will be converted to int32 numpy array)
             input_shape: Shape of input data
         """
-        self.X_train = X_train
-        self.y_train = y_train
-        self.X_val = X_val
-        self.y_val = y_val
+        # Convert to numpy arrays with proper dtypes to avoid "Invalid dtype: object" error
+        # Handle DataFrames with Timestamp or other non-numeric columns
+        X_train = self._prepare_features(X_train)
+        X_val = self._prepare_features(X_val)
+            
+        self.X_train = np.array(X_train, dtype=np.float32)
+        self.y_train = np.array(y_train, dtype=np.int32).flatten()
+        self.X_val = np.array(X_val, dtype=np.float32)
+        self.y_val = np.array(y_val, dtype=np.int32).flatten()
         self.input_shape = input_shape
+    
+    def _prepare_features(self, X):
+        """
+        Prepare features by handling non-numeric data (like Timestamps).
+        Works with 2D and 3D arrays.
+        
+        Args:
+            X: Input features (DataFrame, 2D array, or 3D array)
+            
+        Returns:
+            Cleaned numpy array with only numeric values
+        """
+        if isinstance(X, pd.DataFrame):
+            # Select only numeric columns
+            return X.select_dtypes(include=[np.number]).values
+        
+        elif isinstance(X, np.ndarray):
+            if X.dtype == object:
+                # Handle 3D arrays (sequences) - shape: (samples, sequence_length, features)
+                if X.ndim == 3:
+                    cleaned_sequences = []
+                    for sequence in X:
+                        # Convert each sequence to DataFrame
+                        df = pd.DataFrame(sequence)
+                        
+                        # Try to convert all columns to numeric, coercing errors to NaN
+                        for col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                        
+                        # Now select numeric columns (should be all columns that converted successfully)
+                        numeric_df = df.select_dtypes(include=[np.number])
+                        
+                        # Drop columns that are all NaN (couldn't be converted)
+                        numeric_df = numeric_df.dropna(axis=1, how='all')
+                        
+                        cleaned_sequences.append(numeric_df.values)
+                    return np.array(cleaned_sequences, dtype=np.float32)
+                
+                # Handle 2D arrays
+                elif X.ndim == 2:
+                    try:
+                        return X.astype(np.float32)
+                    except (ValueError, TypeError):
+                        df = pd.DataFrame(X)
+                        # Try to convert to numeric
+                        for col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                        numeric_df = df.select_dtypes(include=[np.number])
+                        numeric_df = numeric_df.dropna(axis=1, how='all')
+                        return numeric_df.values
+                
+                # Handle 1D arrays
+                else:
+                    try:
+                        return X.astype(np.float32)
+                    except (ValueError, TypeError):
+                        # Filter out non-numeric values
+                        return np.array([x for x in X if isinstance(x, (int, float, np.number))], dtype=np.float32)
+            else:
+                # Already numeric dtype
+                return X
+        
+        # For other types, try direct conversion
+        return np.array(X, dtype=np.float32)
         
     def objective(self, trial):
         """
@@ -76,13 +148,14 @@ class HyperparameterOptimizer:
         # Suggest epochs (with a reasonable range)
         epochs = trial.suggest_int('epochs', 10, 50, step=10)
         
-        # Build model based on architecture type
+        # Build custom model with suggested hyperparameters
         if architecture_type == 'simple':
-            model = CNNArchitectures.simple_cnn(self.input_shape)
+            model = self._build_simple_cnn(filters_1, filters_2, dense_units)
         elif architecture_type == 'deeper':
-            model = CNNArchitectures.deeper_cnn(self.input_shape)
+            model = self._build_deeper_cnn(filters_1, filters_2, dense_units_1, dense_units_2, dropout_1, dropout_2)
         elif architecture_type == 'cnn_lstm':
-            model = CNNArchitectures.cnn_with_lstm(self.input_shape)
+            model = self._build_cnn_lstm(filters_1, filters_2, lstm_units_1, lstm_units_2, 
+                                         dense_units_1, dense_units_2, dropout_1, dropout_2, dropout_3)
         
         # Compile model with suggested hyperparameters
         if optimizer_name == 'adam':

@@ -26,36 +26,72 @@ class TrendPredictor:
         self.model = None
         self.is_trained = False
         
-    def prepare_data(self, features_df: pd.DataFrame, target_series: pd.Series):
+    def prepare_data(self, features_df: pd.DataFrame, target_series):
         """
         Prepare data for training by creating sequences and scaling features.
         
         Args:
             features_df: DataFrame with features
-            target_series: Series with target values (price changes)
+            target_series: Array or Series with target values (price changes or binary labels)
             
         Returns:
             tuple: (X, y) prepared for model training
         """
         # Scale the features
-        scaled_features = self.scaler.fit_transform(features_df.values)
+        float_cols = features_df.select_dtypes(include=['float64']).columns
+        scaled_features = features_df.copy()
+        scaled_features[float_cols] = self.scaler.fit_transform(features_df[float_cols].values)
+        
+        # Convert target_series to numpy array if it's a pandas Series
+        if isinstance(target_series, pd.Series):
+            target_array = target_series.values
+        else:
+            target_array = target_series
         
         # Create sequences for CNN
+        # Note: target_array may be shorter than features_df due to future_period removal
+        # We need to ensure we don't go out of bounds
+        max_index = min(len(scaled_features), len(target_array))
+        
         X, y = [], []
-        for i in range(len(scaled_features) - self.sequence_length):
-            X.append(scaled_features[i:i + self.sequence_length])
-            y.append(target_series.iloc[i + self.sequence_length])
+        for i in range(max_index - self.sequence_length):
+            X.append(scaled_features.iloc[i:i + self.sequence_length].values)
+            y.append(target_array[i + self.sequence_length])
         
         X = np.array(X)
         y = np.array(y)
         
-        # Convert target to binary based on profit threshold
-        # 1 if profit > threshold, 0 otherwise
-        y_binary = (y > self.profit_threshold).astype(int)
-        
-        return X, y_binary
+        return X, y
     
-    def create_target_labels(self, price_series: pd.Series):
+    def _prepare_features_for_training(self, X):
+        """
+        Prepare features for training by ensuring proper numeric dtypes.
+        Handles arrays with object dtype that may contain Timestamps.
+        
+        Args:
+            X: Input features (numpy array)
+            
+        Returns:
+            Cleaned numpy array with float32 dtype
+        """
+        if isinstance(X, np.ndarray) and X.dtype == object:
+            # Handle 3D arrays (sequences)
+            if X.ndim == 3:
+                cleaned_sequences = []
+                for sequence in X:
+                    df = pd.DataFrame(sequence)
+                    # Convert to numeric, coercing errors to NaN
+                    for col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    numeric_df = df.select_dtypes(include=[np.number])
+                    numeric_df = numeric_df.dropna(axis=1, how='all')
+                    cleaned_sequences.append(numeric_df.values)
+                return np.array(cleaned_sequences, dtype=np.float32)
+        
+        # Already numeric or other type
+        return np.array(X, dtype=np.float32)
+    
+    def create_target_labels(self, price_series: pd.Series, future_period: int = 15, threshold: float = 0.02):
         """
         Create target labels based on future price changes.
         
@@ -66,12 +102,24 @@ class TrendPredictor:
             Series with target labels (percentage change)
         """
         # Calculate future price change (next period)
-        future_prices = price_series.shift(-1)
+        future_prices = price_series.shift(-future_period)
         price_changes = (future_prices - price_series) / price_series
-        
-        return price_changes[:-1]  # Remove the last NaN value
+
+        # Convert target to binary based on profit threshold
+        # 1 if profit > threshold, -1 if profit < -threshold, 0 otherwise
+        indices_pos = (price_changes > threshold).astype(int)
+        indices_neg = (price_changes < -threshold).astype(int)
+        y_binary = np.zeros_like(price_changes)
+        y_binary[indices_pos] = 1
+        y_binary[indices_neg] = -1        
+        return y_binary[:-future_period]  # Remove the last NaN value
     
-    def train(self, features_df: pd.DataFrame, price_series: pd.Series, optimize_hyperparams: bool = True, n_trials: int = 20):
+    def train(self, features_df: pd.DataFrame, 
+                    price_series: pd.Series, 
+                    optimize_hyperparams: bool = True, 
+                    n_trials: int = 20,
+                    future_period: int = 15,
+                    threshold: float = 0.02):
         """
         Train the trend prediction model.
         
@@ -80,15 +128,23 @@ class TrendPredictor:
             price_series: Series with target prices
             optimize_hyperparams: Whether to optimize hyperparameters using Optuna
             n_trials: Number of optimization trials if optimizing
+            future_period: Number of periods to look ahead for price change
+            threshold: Profit threshold for trend prediction
         """
         # Create target labels based on future price changes
-        target_labels = self.create_target_labels(price_series)
+        target_labels = self.create_target_labels(price_series, future_period, threshold)
         
         # Prepare data for training
         X, y = self.prepare_data(features_df, target_labels)
         
         # Split data into train and validation sets
         X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+        
+        # Ensure data has proper numeric dtypes (handle object dtypes with Timestamps)
+        X_train = self._prepare_features_for_training(X_train)
+        X_val = self._prepare_features_for_training(X_val)
+        y_train = np.array(y_train, dtype=np.int32)
+        y_val = np.array(y_val, dtype=np.int32)
         
         if optimize_hyperparams:
             # Optimize hyperparameters using Optuna
@@ -200,15 +256,24 @@ class TrendPredictor:
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
         
-        # Scale features
-        scaled_features = self.scaler.transform(features_df.values)
+        # Scale features - select only numeric columns
+        float_cols = features_df.select_dtypes(include=[np.number]).columns
+        scaled_features = features_df.copy()
+        
+        # Only transform the numeric columns that were used during training
+        # The scaler expects the same number of features it was trained on
+        if len(float_cols) > 0:
+            scaled_features[float_cols] = self.scaler.transform(features_df[float_cols].values)
         
         # Create sequences for prediction
         X_pred = []
         for i in range(len(scaled_features) - self.sequence_length + 1):
-            X_pred.append(scaled_features[i:i + self.sequence_length])
+            X_pred.append(scaled_features.iloc[i:i + self.sequence_length].values)
         
         X_pred = np.array(X_pred)
+        
+        # Clean data to ensure proper numeric dtypes (remove any Timestamps)
+        X_pred = self._prepare_features_for_training(X_pred)
         
         # Make predictions
         probabilities = self.model.predict(X_pred).flatten()

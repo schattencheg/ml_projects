@@ -16,7 +16,7 @@ class FeaturesGenerator:
         """
         pass
 
-    def generate_features(df: pd.DataFrame, price_change_threshold=0.02):
+    def generate_features(self, df: pd.DataFrame, price_change_threshold=0.02):
         df = df.copy()
         df.columns = df.columns.str.lower()
         df['timestamp'] = pd.to_datetime(df['timestamp'])
@@ -234,4 +234,3 @@ class FeaturesGenerator:
         df = df.dropna()
 
         return df, feature_cols
-
