@@ -97,3 +97,5 @@ ml_cnn/examples/
 *.png
 
 *.html
+
+ml_cnn/models/
