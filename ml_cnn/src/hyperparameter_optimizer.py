@@ -113,31 +113,6 @@ class HyperparameterOptimizer:
         # Suggest architecture type
         architecture_type = trial.suggest_categorical('architecture', ['simple', 'deeper', 'cnn_lstm'])
         
-        # Suggest hyperparameters based on architecture
-        if architecture_type == 'simple':
-            filters_1 = trial.suggest_int('filters_1', 16, 64, step=16)
-            filters_2 = trial.suggest_int('filters_2', 32, 128, step=16)
-            filters_3 = trial.suggest_int('filters_3', 64, 256, step=32)
-            dense_units = trial.suggest_int('dense_units', 20, 100, step=10)
-        elif architecture_type == 'deeper':
-            filters_1 = trial.suggest_int('filters_1', 32, 128, step=16)
-            filters_2 = trial.suggest_int('filters_2', 32, 128, step=16)
-            filters_3 = trial.suggest_int('filters_3', 64, 256, step=32)
-            dense_units_1 = trial.suggest_int('dense_units_1', 256, 512, step=64)
-            dense_units_2 = trial.suggest_int('dense_units_2', 128, 256, step=32)
-            dropout_1 = trial.suggest_float('dropout_1', 0.1, 0.5)
-            dropout_2 = trial.suggest_float('dropout_2', 0.2, 0.7)
-        elif architecture_type == 'cnn_lstm':
-            filters_1 = trial.suggest_int('filters_1', 32, 128, step=16)
-            filters_2 = trial.suggest_int('filters_2', 32, 128, step=16)
-            lstm_units_1 = trial.suggest_int('lstm_units_1', 50, 200, step=25)
-            lstm_units_2 = trial.suggest_int('lstm_units_2', 50, 200, step=25)
-            dense_units_1 = trial.suggest_int('dense_units_1', 128, 512, step=64)
-            dense_units_2 = trial.suggest_int('dense_units_2', 64, 256, step=32)
-            dropout_1 = trial.suggest_float('dropout_1', 0.2, 0.7)
-            dropout_2 = trial.suggest_float('dropout_2', 0.2, 0.7)
-            dropout_3 = trial.suggest_float('dropout_3', 0.2, 0.7)
-        
         # Suggest optimizer and learning rate
         optimizer_name = trial.suggest_categorical('optimizer', ['adam', 'rmsprop', 'sgd'])
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True)
@@ -148,14 +123,16 @@ class HyperparameterOptimizer:
         # Suggest epochs (with a reasonable range)
         epochs = trial.suggest_int('epochs', 10, 50, step=10)
         
-        # Build custom model with suggested hyperparameters
+        # Build model using CNNArchitectures
+        # Note: We optimize architecture selection (simple/deeper/cnn_lstm) and training
+        # hyperparameters (optimizer, learning_rate, batch_size, epochs).
+        # The CNN architectures themselves use predefined layer configurations.
         if architecture_type == 'simple':
-            model = self._build_simple_cnn(filters_1, filters_2, dense_units)
+            model = CNNArchitectures.simple_cnn(self.input_shape)
         elif architecture_type == 'deeper':
-            model = self._build_deeper_cnn(filters_1, filters_2, dense_units_1, dense_units_2, dropout_1, dropout_2)
+            model = CNNArchitectures.deeper_cnn(self.input_shape)
         elif architecture_type == 'cnn_lstm':
-            model = self._build_cnn_lstm(filters_1, filters_2, lstm_units_1, lstm_units_2, 
-                                         dense_units_1, dense_units_2, dropout_1, dropout_2, dropout_3)
+            model = CNNArchitectures.cnn_with_lstm(self.input_shape)
         
         # Compile model with suggested hyperparameters
         if optimizer_name == 'adam':

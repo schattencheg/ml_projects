@@ -28,9 +28,9 @@ class ModelConfig:
         
         self.model_names = {
             'logistic_regression': True,
-            'ridge_classifier': False,
-            'naive_bayes': False,
-            'decision_tree': False,
+            'ridge_classifier': True,
+            'naive_bayes': True,
+            'decision_tree': True,
             'random_forest': False,
             'gradient_boosting': False,
             'knn': False,

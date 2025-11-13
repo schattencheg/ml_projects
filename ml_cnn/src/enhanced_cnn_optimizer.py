@@ -18,6 +18,7 @@ from datetime import datetime
 import os
 import json
 import joblib
+from src.mlflow_tracker import MLflowTracker
 
 
 class EnhancedCNNOptimizer:
@@ -25,7 +26,7 @@ class EnhancedCNNOptimizer:
     Enhanced CNN optimizer with custom architectures, visualization, and comparison.
     """
     
-    def __init__(self, X_train, y_train, X_val, y_val, input_shape):
+    def __init__(self, X_train, y_train, X_val, y_val, input_shape, use_mlflow=True, mlflow_uri='http://localhost:5000'):
         """
         Initialize optimizer with training and validation data.
         
@@ -35,6 +36,8 @@ class EnhancedCNNOptimizer:
             X_val: Validation features
             y_val: Validation labels
             input_shape: Shape of input data (sequence_length, num_features)
+            use_mlflow: Whether to use MLflow tracking (default: True)
+            mlflow_uri: MLflow tracking URI (default: http://localhost:5000)
         """
         # Prepare data
         self.X_train = self._prepare_features(X_train)
@@ -45,6 +48,13 @@ class EnhancedCNNOptimizer:
         
         # Store optimization history
         self.optimization_history = []
+        
+        # Initialize MLflow tracker
+        self.mlflow_tracker = MLflowTracker(
+            tracking_uri=mlflow_uri,
+            experiment_name='cnn_ml',
+            enabled=use_mlflow
+        )
         
     def _prepare_features(self, X):
         """Prepare features by handling non-numeric data."""
@@ -231,6 +241,20 @@ class EnhancedCNNOptimizer:
             'params': trial.params.copy()
         })
         
+        # Log to MLflow
+        metrics = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1
+        }
+        self.mlflow_tracker.log_trial(
+            trial_number=trial.number,
+            architecture=architecture_type,
+            params=trial.params,
+            metrics=metrics
+        )
+        
         # Return recall (maximize true positive rate)
         return recall
     
@@ -254,8 +278,23 @@ class EnhancedCNNOptimizer:
         print(f"Input shape: {self.input_shape}")
         print(f"{'='*80}\n")
         
-        study = optuna.create_study(direction='maximize', study_name='cnn_optimization')
-        study.optimize(self.objective, n_trials=n_trials, show_progress_bar=show_progress)
+        # Start parent MLflow run
+        self.mlflow_tracker.start_optimization_run(
+            n_trials=n_trials,
+            training_samples=len(self.X_train),
+            validation_samples=len(self.X_val),
+            sequence_length=self.input_shape[0],
+            num_features=self.input_shape[1]
+        )
+        
+        try:
+            study = optuna.create_study(direction='maximize', study_name='cnn_optimization')
+            study.optimize(self.objective, n_trials=n_trials, show_progress_bar=show_progress)
+            
+            # Log best results to parent run
+            self.mlflow_tracker.log_best_results(study)
+        finally:
+            self.mlflow_tracker.end_optimization_run()
         
         print(f"\n{'='*80}")
         print("OPTIMIZATION COMPLETE")
@@ -679,7 +718,7 @@ class EnhancedCNNOptimizer:
         # Save model summary
         print("\nStep 8: Saving model summary...")
         summary_path = os.path.join(save_dir, 'model_summary.txt')
-        with open(summary_path, 'w') as f:
+        with open(summary_path, 'w', encoding="utf-8") as f:
             model.summary(print_fn=lambda x: f.write(x + '\n'))
         print(f"✓ Model summary saved to: {summary_path}")
         
@@ -777,6 +816,42 @@ print(f"Architecture: {{metadata['architecture']}}")
             f.write(readme_content)
         print(f"✓ README saved to: {readme_path}")
         
+        # Log to MLflow
+        print("\nStep 10: Logging to MLflow...")
+        
+        # Prepare artifact paths
+        artifact_paths = {
+            'model_path': model_path,
+            'arch_path': arch_path,
+            'metadata_path': metadata_path,
+            'history_path': history_path,
+            'training_history_path': training_history_path,
+            'opt_plot_path': opt_plot_path,
+            'training_plot_path': training_plot_path,
+            'summary_path': summary_path,
+            'readme_path': readme_path,
+            'save_directory': save_dir
+        }
+        
+        # Add best_recall to params for logging
+        best_params_with_recall = best_params.copy()
+        best_params_with_recall['best_recall'] = best_trial.value
+        
+        success, run_id = self.mlflow_tracker.log_best_model(
+            model=model,
+            model_name=model_name,
+            timestamp=timestamp,
+            architecture=arch,
+            best_trial=best_trial.number,
+            total_trials=len(study.trials),
+            sequence_length=self.input_shape[0],
+            num_features=self.input_shape[1],
+            best_params=best_params_with_recall,
+            X_val=self.X_val,
+            y_val=self.y_val,
+            artifact_paths=artifact_paths
+        )
+        
         print(f"\n{'='*80}")
         print("MODEL SAVED SUCCESSFULLY")
         print(f"{'='*80}")
@@ -791,6 +866,12 @@ print(f"Architecture: {{metadata['architecture']}}")
         print(f"  7. training_history.png - Training plot")
         print(f"  8. model_summary.txt - Model summary")
         print(f"  9. README.md - Documentation")
+        
+        if self.mlflow_tracker.is_enabled() and run_id:
+            print(f"\n✓ MLflow: Model and artifacts logged")
+            print(f"  View at: {self.mlflow_tracker.get_tracking_uri()}")
+            print(f"  Model registry: cnn_ml_{model_name}")
+        
         print(f"\n{'='*80}\n")
         
         return save_dir

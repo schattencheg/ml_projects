@@ -47,17 +47,25 @@ def main():
         # Initialize trend predictor with profit threshold
         profit_threshold = 0.02  # 2% profit threshold
         future_period = 15
-        trend_predictor = TrendPredictor(profit_threshold=profit_threshold, sequence_length=10)
+        trend_predictor = TrendPredictor(
+            profit_threshold=profit_threshold, 
+            sequence_length=10,
+            use_mlflow=True,  # Enable MLflow tracking
+            mlflow_uri='http://localhost:5000'  # MLflow server URI
+        )
     
         # Train the model
         print("Training trend prediction model...")
+        model_name = f"{ticker.replace('-', '_').lower()}_trend_model"
         trend_predictor.train(
             features_df=features_df,
             price_series=price_series,
             optimize_hyperparams=True,  # Set to True to use Optuna optimization
             n_trials=10,  # Number of optimization trials
             future_period=future_period,
-            threshold=profit_threshold
+            threshold=profit_threshold,
+            model_name=model_name,  # Name for MLflow tracking
+            ticker=ticker  # Ticker symbol for MLflow tracking
         )
     
         # Make predictions

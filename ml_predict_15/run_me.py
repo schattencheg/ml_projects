@@ -372,6 +372,9 @@ def _create_ohlc_with_trades_plot(df_ohlc, trades_df, model_name):
 def main_train(features_method='crypto', target_bars=45, target_pct=1.0):
     """Main execution function."""
     
+    # Create timestamp for this training session
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
     print("="*80)
     print("ML PREDICTION SYSTEM - TRAINING & TESTING")
     print("="*80)
@@ -620,11 +623,11 @@ def main_train(features_method='crypto', target_bars=45, target_pct=1.0):
     
     print("\n" + "="*80 + "\n")
 
-def main_backtest(features_method='crypto', target_bars=45, target_pct=1.0):
+def main_backtest(features_method='crypto', target_bars=45, target_pct=1.0, folder='latest'):
     """Main execution function for backtesting."""
     # Load models
     models_manager = ModelsManager(PATH_MODELS)
-    models, scaler, metadata = models_manager.load_models('latest')
+    models, scaler, metadata = models_manager.load_models(folder)
 
     # Backtest
     df_test = pd.read_csv(PATH_TEST)
@@ -671,96 +674,99 @@ def main_backtest(features_method='crypto', target_bars=45, target_pct=1.0):
     plots_per_model = True
     #models = {'logistic_regression': models['logistic_regression']}
     for i, (model_name, model) in enumerate(models.items(), 1):
-        print(f"\n\n\n{'='*80}")
-        print(f"BACKTEST {i}/{len(models)}: {model_name.upper()}")
-        print(f"{'='*80}")
-        
-        # DIAGNOSTIC: Check model predictions
-        X_test = df_test_features[top_features].values
-        X_test_scaled = scaler.transform(X_test)
-        test_predictions = model.predict(X_test_scaled)
-        unique, counts = np.unique(test_predictions, return_counts=True)
-        pred_dist = dict(zip(unique, counts))
-        print(f"\n📊 Prediction Distribution for {model_name}:")
-        for cls, cnt in pred_dist.items():
-            pct = (cnt / len(test_predictions)) * 100
-            class_name = ['Down', 'Neutral', 'Up'][int(cls)] if cls < 3 else f'Class{cls}'
-            print(f"   Class {cls} ({class_name}): {cnt:,} samples ({pct:.1f}%)")
-        
-        if hasattr(model, 'predict_proba'):
-            test_proba = model.predict_proba(X_test_scaled)
-            up_proba = test_proba[:, -1]  # Last class (Up)
-            print(f"\n📈 'Up' Probability Stats:")
-            print(f"   Mean: {up_proba.mean():.3f}")
-            print(f"   Max: {up_proba.max():.3f}")
-            print(f"   Samples > 0.4: {(up_proba > 0.4).sum():,} ({(up_proba > 0.4).sum() / len(up_proba) * 100:.1f}%)")
-            print(f"   Samples > 0.5: {(up_proba > 0.5).sum():,} ({(up_proba > 0.5).sum() / len(up_proba) * 100:.1f}%)")
-        print()
-        
-        results, trades = backtester.run_backtest(
-            df = df_test_features,
-            model = model,
-            scaler = scaler,
-            X_columns = top_features,
-            probability_threshold = 0.4,  # Lower for 3-class (0.4 vs 0.6 for 2-class)
-            trailing_stop_pct = 2.0,
-            take_profit_pct = None,
-            position_size_pct = 0.9,
-            plot = False,  # Disable plotting to avoid memory issues
-            printlog = True
-        )
-        
-        # Add model name and trades to results
-        results['model_name'] = model_name
-        results['trades'] = trades
-        
-        # Store results
-        all_results[model_name] = results
-        
-        # Debug: Print all result keys
-        print(f"\n  Debug - Result keys for {model_name}: {list(results.keys())}")
-        
-        # Store equity curve with validation
-        if 'equity_curve' in results:
-            equity_curve = results['equity_curve']
-            print(f"  Debug - Equity curve type: {type(equity_curve)}")
-            if equity_curve is not None:
-                if hasattr(equity_curve, '__len__'):
-                    print(f"  Debug - Equity curve length: {len(equity_curve)}")
-                    if len(equity_curve) > 0:
-                        all_equity_curves[model_name] = equity_curve
-                        print(f"  ✓ Stored equity curve: {len(equity_curve)} points")
-                    else:
-                        print(f"  ⚠ Equity curve is empty for {model_name}")
-                else:
-                    print(f"  ⚠ Equity curve has no length attribute")
-            else:
-                print(f"  ⚠ Equity curve is None for {model_name}")
-        else:
-            print(f"  ⚠ No equity_curve in results for {model_name}")
-        
-        # Print results
-        print(f"\nResults for {model_name}:")
-        print(f"  Final Value: ${results['final_value']:,.2f}")
-        print(f"  Total Return: {results['total_return_pct']:.2f}%")
-        print(f"  Total Trades: {results['total_trades']}")
-        print(f"  Win Rate: {results['win_rate']:.2f}%")
-        print(f"  Sharpe Ratio: {results.get('sharpe_ratio', 0):.2f}")
-        print(f"  Max Drawdown: {results.get('max_drawdown', 0):.2f}%")
-        
-        # Create visualizations
-        print(f"\nCreating visualizations for {model_name}...")
-        if plots_per_model:
-            backtester.create_comprehensive_visualizations(results, 
-                                            df=df_test_features, 
-                                            show_plots=True, 
-                                            model_name=model_name,
-                                            path_suffix=path_suffix)
+        try:
+            print(f"\n\n\n{'='*80}")
+            print(f"BACKTEST {i}/{len(models)}: {model_name.upper()}")
+            print(f"{'='*80}")
             
-        # Create OHLC chart with trades
-        ohlc_filepath = _create_ohlc_with_trades_plot(df_test_features, trades, model_name)
-        if ohlc_filepath:
-            print(f"  ✓ OHLC chart created successfully")
+            # DIAGNOSTIC: Check model predictions
+            X_test = df_test_features[top_features].values
+            X_test_scaled = scaler.transform(X_test)
+            test_predictions = model.predict(X_test_scaled)
+            unique, counts = np.unique(test_predictions, return_counts=True)
+            pred_dist = dict(zip(unique, counts))
+            print(f"\n📊 Prediction Distribution for {model_name}:")
+            for cls, cnt in pred_dist.items():
+                pct = (cnt / len(test_predictions)) * 100
+                class_name = ['Down', 'Neutral', 'Up'][int(cls)] if cls < 3 else f'Class{cls}'
+                print(f"   Class {cls} ({class_name}): {cnt:,} samples ({pct:.1f}%)")
+            
+            if hasattr(model, 'predict_proba'):
+                test_proba = model.predict_proba(X_test_scaled)
+                up_proba = test_proba[:, -1]  # Last class (Up)
+                print(f"\n📈 'Up' Probability Stats:")
+                print(f"   Mean: {up_proba.mean():.3f}")
+                print(f"   Max: {up_proba.max():.3f}")
+                print(f"   Samples > 0.4: {(up_proba > 0.4).sum():,} ({(up_proba > 0.4).sum() / len(up_proba) * 100:.1f}%)")
+                print(f"   Samples > 0.5: {(up_proba > 0.5).sum():,} ({(up_proba > 0.5).sum() / len(up_proba) * 100:.1f}%)")
+            print()
+            
+            results, trades = backtester.run_backtest(
+                df = df_test_features,
+                model = model,
+                scaler = scaler,
+                X_columns = top_features,
+                probability_threshold = 0.4,  # Lower for 3-class (0.4 vs 0.6 for 2-class)
+                trailing_stop_pct = 2.0,
+                take_profit_pct = None,
+                position_size_pct = 0.9,
+                plot = False,  # Disable plotting to avoid memory issues
+                printlog = True
+            )
+            
+            # Add model name and trades to results
+            results['model_name'] = model_name
+            results['trades'] = trades
+            
+            # Store results
+            all_results[model_name] = results
+            
+            # Debug: Print all result keys
+            print(f"\n  Debug - Result keys for {model_name}: {list(results.keys())}")
+            
+            # Store equity curve with validation
+            if 'equity_curve' in results:
+                equity_curve = results['equity_curve']
+                print(f"  Debug - Equity curve type: {type(equity_curve)}")
+                if equity_curve is not None:
+                    if hasattr(equity_curve, '__len__'):
+                        print(f"  Debug - Equity curve length: {len(equity_curve)}")
+                        if len(equity_curve) > 0:
+                            all_equity_curves[model_name] = equity_curve
+                            print(f"  ✓ Stored equity curve: {len(equity_curve)} points")
+                        else:
+                            print(f"  ⚠ Equity curve is empty for {model_name}")
+                    else:
+                        print(f"  ⚠ Equity curve has no length attribute")
+                else:
+                    print(f"  ⚠ Equity curve is None for {model_name}")
+            else:
+                print(f"  ⚠ No equity_curve in results for {model_name}")
+            
+            # Print results
+            print(f"\nResults for {model_name}:")
+            print(f"  Final Value: ${results['final_value']:,.2f}")
+            print(f"  Total Return: {results['total_return_pct']:.2f}%")
+            print(f"  Total Trades: {results['total_trades']}")
+            print(f"  Win Rate: {results['win_rate']:.2f}%")
+            print(f"  Sharpe Ratio: {results.get('sharpe_ratio', 0):.2f}")
+            print(f"  Max Drawdown: {results.get('max_drawdown', 0):.2f}%")
+            
+            # Create visualizations
+            print(f"\nCreating visualizations for {model_name}...")
+            if plots_per_model:
+                backtester.create_comprehensive_visualizations(results, 
+                                                df=df_test_features, 
+                                                show_plots=True, 
+                                                model_name=model_name,
+                                                path_suffix=path_suffix)
+                
+            # Create OHLC chart with trades
+            ohlc_filepath = _create_ohlc_with_trades_plot(df_test_features, trades, model_name)
+            if ohlc_filepath:
+                print(f"  ✓ OHLC chart created successfully")
+        except Exception as e:
+            print(f"✗ Failed {model_name}: {e}")
     
     # Create final comparison plot
     print(f"\n{'='*80}")
@@ -784,5 +790,6 @@ if __name__ == "__main__":
     features_method = 'classical'
     target_bars = 45
     target_pct = 1.0
+    folder_name = '20251113_160413'
     #main_train(features_method=features_method, target_bars=target_bars, target_pct=target_pct)
-    main_backtest(features_method=features_method, target_bars=target_bars, target_pct=target_pct)
+    main_backtest(features_method=features_method, target_bars=target_bars, target_pct=target_pct, folder=folder_name)
