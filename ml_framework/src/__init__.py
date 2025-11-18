@@ -1,21 +1,61 @@
 """
-ML Framework - A simple and functional machine learning framework for financial data analysis.
+ML Framework - A comprehensive ML framework for financial data analysis.
 """
 
-__version__ = "0.1.0"
-
+# Legacy components (for backward compatibility)
 from .data_provider import DataProvider
 from .features_generator import FeaturesGenerator
-from .model_manager import ModelManager
-from .ml_trainer import ML_Trainer
-from .ml_tester import ML_Tester
-from .backtester import Backtester
+
+# New manager-based architecture
+from .managers import (
+    ModelManager,
+    TrainManager,
+    ScalerManager,
+    MLFlowManager,
+    BacktestManager,
+    ResultManager,
+    VisualizationManager,
+    PipelineManager
+)
+
+# Model library
+from .models_lib import (
+    BaseModel,
+    XGBoostModel,
+    CatBoostModel,
+    LinearRegressionModel,
+    LogisticRegressionModel,
+    RandomForestModel,
+    SimpleCNN,
+    DeepCNN,
+    ResidualCNN
+)
+
+__version__ = '0.2.0'
 
 __all__ = [
+    # Data components
     'DataProvider',
     'FeaturesGenerator',
+    
+    # Managers
     'ModelManager',
-    'ML_Trainer',
-    'ML_Tester',
-    'Backtester',
+    'TrainManager',
+    'ScalerManager',
+    'MLFlowManager',
+    'BacktestManager',
+    'ResultManager',
+    'VisualizationManager',
+    'PipelineManager',
+    
+    # Models
+    'BaseModel',
+    'XGBoostModel',
+    'CatBoostModel',
+    'LinearRegressionModel',
+    'LogisticRegressionModel',
+    'RandomForestModel',
+    'SimpleCNN',
+    'DeepCNN',
+    'ResidualCNN',
 ]
