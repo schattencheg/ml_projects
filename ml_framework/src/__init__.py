@@ -39,6 +39,12 @@ from .backtesting import (
     BacktestBacktestingPy
 )
 
+# Strategies module
+from .strategies import (
+    BaseStrategy,
+    MLStrategy
+)
+
 __version__ = '0.2.0'
 
 __all__ = [
@@ -74,4 +80,8 @@ __all__ = [
     'BacktestNoLib',
     'BacktestBacktrader',
     'BacktestBacktestingPy',
+    
+    # Strategies
+    'BaseStrategy',
+    'MLStrategy',
 ]

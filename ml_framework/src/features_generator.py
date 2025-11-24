@@ -165,7 +165,8 @@ class FeaturesGenerator:
     def create_target(self, df: pd.DataFrame, 
                      target_type: str = 'classification',
                      future_bars: int = 15,
-                     threshold: float = 0.02) -> pd.DataFrame:
+                     threshold: float = 0.02,
+                     num_classes: int = 3) -> pd.DataFrame:
         """
         Create target variable for ML models.
         
@@ -174,11 +175,14 @@ class FeaturesGenerator:
             target_type: 'classification' or 'regression'
             future_bars: Number of bars to look ahead
             threshold: Threshold for classification (e.g., 2% price change)
+            num_classes: Number of classes (2 or 3)
+                - 2 classes: 0 (no increase), 1 (increase)
+                - 3 classes: -1 (decrease), 0 (neutral), +1 (increase)
             
         Returns:
             DataFrame with target column added
         """
-        print(f"Creating {target_type} target (future_bars={future_bars})...")
+        print(f"Creating {target_type} target (future_bars={future_bars}, num_classes={num_classes})...")
         
         df = df.copy()
         
@@ -187,15 +191,34 @@ class FeaturesGenerator:
             df['target'] = df['close'].pct_change(future_bars).shift(-future_bars)
             
         elif target_type == 'classification':
-            # Predict if price will increase by threshold
+            # Calculate future return
             future_return = df['close'].pct_change(future_bars).shift(-future_bars)
-            df['target'] = (future_return > threshold).astype(int)
             
-            # Count classes
-            class_counts = df['target'].value_counts()
-            print(f"  Class distribution:")
-            print(f"    No Increase (0): {class_counts.get(0, 0)}")
-            print(f"    Increase (1):    {class_counts.get(1, 0)}")
+            if num_classes == 2:
+                # Binary classification: 0 (no increase), 1 (increase)
+                df['target'] = (future_return > threshold).astype(int)
+                
+                # Count classes
+                class_counts = df['target'].value_counts().sort_index()
+                print(f"  Class distribution (2 classes):")
+                print(f"    No Increase (0): {class_counts.get(0, 0)}")
+                print(f"    Increase (1):    {class_counts.get(1, 0)}")
+                
+            elif num_classes == 3:
+                # Three-class classification: -1 (decrease), 0 (neutral), +1 (increase)
+                df['target'] = 0  # Default to neutral
+                df.loc[future_return > threshold, 'target'] = 1   # Increase
+                df.loc[future_return < -threshold, 'target'] = -1  # Decrease
+                
+                # Count classes
+                class_counts = df['target'].value_counts().sort_index()
+                print(f"  Class distribution (3 classes):")
+                print(f"    Decrease (-1): {class_counts.get(-1, 0)}")
+                print(f"    Neutral (0):   {class_counts.get(0, 0)}")
+                print(f"    Increase (+1): {class_counts.get(1, 0)}")
+            
+            else:
+                raise ValueError(f"num_classes must be 2 or 3, got {num_classes}")
         
         else:
             raise ValueError(f"Unknown target_type: {target_type}")
