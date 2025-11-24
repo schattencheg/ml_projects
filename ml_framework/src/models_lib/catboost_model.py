@@ -18,12 +18,13 @@ class CatBoostModel(BaseModel):
     CatBoost classifier with automatic target conversion.
     """
     
-    def __init__(self, name: str = "CatBoost", **params):
+    def __init__(self, name: str = "CatBoost", use_gpu: bool = False, **params):
         """
         Initialize CatBoost model.
         
         Args:
             name: Model name
+            use_gpu: Whether to use GPU acceleration
             **params: CatBoost parameters
         """
         if not CATBOOST_AVAILABLE:
@@ -40,10 +41,20 @@ class CatBoostModel(BaseModel):
             'verbose': False,
             'thread_count': -1
         }
+        
+        # Add GPU parameters if requested
+        if use_gpu:
+            default_params.update({
+                'task_type': 'GPU',
+                'devices': '0'
+            })
+            print(f"✓ {name}: GPU acceleration enabled")
+        
         default_params.update(params)
         
         self.params = default_params
         self.model = None
+        self.use_gpu = use_gpu
         
     def _fit(self, X: np.ndarray, y: np.ndarray, **kwargs):
         """Fit CatBoost model."""

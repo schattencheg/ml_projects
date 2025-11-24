@@ -47,6 +47,8 @@ __all__ = [
     'ResultManager',
     'VisualizationManager',
     'PipelineManager',
+    'FeatureSelector',
+    'HyperparameterOptimizer',
     
     # Models
     'BaseModel',

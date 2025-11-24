@@ -28,15 +28,17 @@ class ModelManager:
     - Model versioning and metadata tracking
     """
     
-    def __init__(self, results_dir: str = 'results'):
+    def __init__(self, results_dir: str = 'results', use_gpu: bool = False):
         """
         Initialize ModelManager.
         
         Args:
             results_dir: Base directory for results (models will be in timestamped subdirs)
+            use_gpu: Whether to enable GPU acceleration for supported models
         """
         self.results_dir = Path(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
+        self.use_gpu = use_gpu
         
         # Model configuration
         self.model_config = {
@@ -106,17 +108,17 @@ class ModelManager:
         elif model_name == 'random_forest':
             return RandomForestModel(name=model_name, **params)
         elif model_name == 'xgboost':
-            return XGBoostModel(name=model_name, **params)
+            return XGBoostModel(name=model_name, use_gpu=self.use_gpu, **params)
         elif model_name == 'catboost':
-            return CatBoostModel(name=model_name, **params)
+            return CatBoostModel(name=model_name, use_gpu=self.use_gpu, **params)
         elif model_name == 'linear_regression':
             return LinearRegressionModel(name=model_name, **params)
         elif model_name == 'simple_cnn':
-            return SimpleCNN(name=model_name, **params)
+            return SimpleCNN(name=model_name, use_gpu=self.use_gpu, **params)
         elif model_name == 'deep_cnn':
-            return DeepCNN(name=model_name, **params)
+            return DeepCNN(name=model_name, use_gpu=self.use_gpu, **params)
         elif model_name == 'residual_cnn':
-            return ResidualCNN(name=model_name, **params)
+            return ResidualCNN(name=model_name, use_gpu=self.use_gpu, **params)
         else:
             raise ValueError(f"Model creation not implemented for: {model_name}")
     

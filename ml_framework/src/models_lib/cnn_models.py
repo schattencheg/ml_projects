@@ -15,6 +15,24 @@ except ImportError:
     TENSORFLOW_AVAILABLE = False
 
 
+def _configure_gpu_for_tensorflow():
+    """Configure GPU settings for TensorFlow."""
+    if not TENSORFLOW_AVAILABLE:
+        return
+    
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        try:
+            # Enable memory growth to avoid allocating all GPU memory
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print(f"✓ TensorFlow: Found {len(gpus)} GPU(s), memory growth enabled")
+        except RuntimeError as e:
+            print(f"⚠ TensorFlow GPU configuration warning: {e}")
+    else:
+        print("⚠ TensorFlow: No GPU found, using CPU")
+
+
 class SimpleCNN(BaseModel):
     """
     Simple CNN architecture for time series classification.
@@ -23,6 +41,7 @@ class SimpleCNN(BaseModel):
     def __init__(self, name: str = "SimpleCNN", 
                  input_shape: Optional[Tuple] = None,
                  num_classes: int = 3,
+                 use_gpu: bool = True,
                  **params):
         """
         Initialize Simple CNN model.
@@ -31,6 +50,7 @@ class SimpleCNN(BaseModel):
             name: Model name
             input_shape: Input shape (timesteps, features) or None to infer
             num_classes: Number of output classes
+            use_gpu: Whether to use GPU (TensorFlow auto-detects)
             **params: Additional parameters
         """
         if not TENSORFLOW_AVAILABLE:
@@ -42,6 +62,11 @@ class SimpleCNN(BaseModel):
         self.num_classes = num_classes
         self.params = params
         self.model = None
+        self.use_gpu = use_gpu
+        
+        # Configure GPU
+        if use_gpu:
+            _configure_gpu_for_tensorflow()
         
     def _build_model(self, input_shape: Tuple, num_classes: int):
         """Build Simple CNN architecture."""
@@ -122,6 +147,7 @@ class DeepCNN(BaseModel):
     def __init__(self, name: str = "DeepCNN", 
                  input_shape: Optional[Tuple] = None,
                  num_classes: int = 3,
+                 use_gpu: bool = True,
                  **params):
         """
         Initialize Deep CNN model.
@@ -130,6 +156,7 @@ class DeepCNN(BaseModel):
             name: Model name
             input_shape: Input shape (timesteps, features) or None to infer
             num_classes: Number of output classes
+            use_gpu: Whether to use GPU (TensorFlow auto-detects)
             **params: Additional parameters
         """
         if not TENSORFLOW_AVAILABLE:
@@ -141,6 +168,10 @@ class DeepCNN(BaseModel):
         self.num_classes = num_classes
         self.params = params
         self.model = None
+        self.use_gpu = use_gpu
+        
+        if use_gpu:
+            _configure_gpu_for_tensorflow()
         
     def _build_model(self, input_shape: Tuple, num_classes: int):
         """Build Deep CNN architecture."""
@@ -232,6 +263,7 @@ class ResidualCNN(BaseModel):
     def __init__(self, name: str = "ResidualCNN", 
                  input_shape: Optional[Tuple] = None,
                  num_classes: int = 3,
+                 use_gpu: bool = True,
                  **params):
         """
         Initialize Residual CNN model.
@@ -240,6 +272,7 @@ class ResidualCNN(BaseModel):
             name: Model name
             input_shape: Input shape (timesteps, features) or None to infer
             num_classes: Number of output classes
+            use_gpu: Whether to use GPU (TensorFlow auto-detects)
             **params: Additional parameters
         """
         if not TENSORFLOW_AVAILABLE:
@@ -251,6 +284,10 @@ class ResidualCNN(BaseModel):
         self.num_classes = num_classes
         self.params = params
         self.model = None
+        self.use_gpu = use_gpu
+        
+        if use_gpu:
+            _configure_gpu_for_tensorflow()
         
     def _residual_block(self, x, filters: int, kernel_size: int = 3):
         """Create a residual block."""

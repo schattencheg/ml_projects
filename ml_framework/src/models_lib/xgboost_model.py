@@ -18,12 +18,13 @@ class XGBoostModel(BaseModel):
     XGBoost classifier with automatic target conversion.
     """
     
-    def __init__(self, name: str = "XGBoost", **params):
+    def __init__(self, name: str = "XGBoost", use_gpu: bool = False, **params):
         """
         Initialize XGBoost model.
         
         Args:
             name: Model name
+            use_gpu: Whether to use GPU acceleration
             **params: XGBoost parameters
         """
         if not XGBOOST_AVAILABLE:
@@ -39,10 +40,21 @@ class XGBoostModel(BaseModel):
             'random_state': 42,
             'n_jobs': -1
         }
+        
+        # Add GPU parameters if requested
+        if use_gpu:
+            default_params.update({
+                'tree_method': 'gpu_hist',
+                'gpu_id': 0,
+                'predictor': 'gpu_predictor'
+            })
+            print(f"✓ {name}: GPU acceleration enabled")
+        
         default_params.update(params)
         
         self.params = default_params
         self.model = None
+        self.use_gpu = use_gpu
         
     def _fit(self, X: np.ndarray, y: np.ndarray, **kwargs):
         """Fit XGBoost model."""

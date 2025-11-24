@@ -31,3 +31,6 @@ mlflow>=2.0.0
 # Optional: Backtesting
 backtesting>=0.3.3
 backtrader>=1.9.76
+
+# Optional: Hyperparameter optimization
+scikit-optimize>=0.9.0

@@ -10,6 +10,8 @@ from .backtest_manager import BacktestManager
 from .result_manager import ResultManager
 from .visualization_manager import VisualizationManager
 from .pipeline_manager import PipelineManager
+from .feature_selector import FeatureSelector
+from .hyperparameter_optimizer import HyperparameterOptimizer
 
 __all__ = [
     'ModelManager',
@@ -19,5 +21,7 @@ __all__ = [
     'BacktestManager',
     'ResultManager',
     'VisualizationManager',
-    'PipelineManager'
+    'PipelineManager',
+    'FeatureSelector',
+    'HyperparameterOptimizer'
 ]
