@@ -31,6 +31,14 @@ from .models_lib import (
     ResidualCNN
 )
 
+# Backtesting module
+from .backtesting import (
+    BaseBacktest,
+    BacktestNoLib,
+    BacktestBacktrader,
+    BacktestBacktestingPy
+)
+
 __version__ = '0.2.0'
 
 __all__ = [
@@ -60,4 +68,10 @@ __all__ = [
     'SimpleCNN',
     'DeepCNN',
     'ResidualCNN',
+    
+    # Backtesting
+    'BaseBacktest',
+    'BacktestNoLib',
+    'BacktestBacktrader',
+    'BacktestBacktestingPy',
 ]

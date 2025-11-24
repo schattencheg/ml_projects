@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, List, Union
 from pathlib import Path
 import numpy as np
 
-from ..models_lib import (
+from src.models_lib import (
     BaseModel, XGBoostModel, CatBoostModel, 
     LinearRegressionModel, LogisticRegressionModel, RandomForestModel,
     SimpleCNN, DeepCNN, ResidualCNN

@@ -54,16 +54,72 @@ class DataProvider:
         
         return self.data
     
-    def load_yahoo(self, ticker: str, start_date: str, end_date: str, 
-                   interval: str = '1d') -> pd.DataFrame:
+    def _get_cache_filename(self, ticker: str, interval: str) -> Path:
         """
-        Load data from Yahoo Finance.
+        Get cache filename for ticker and interval.
+        
+        Args:
+            ticker: Ticker symbol
+            interval: Data interval
+            
+        Returns:
+            Path to cache file
+        """
+        safe_ticker = ticker.replace('/', '_').replace('-', '_')
+        return self.data_dir / f"{safe_ticker}_{interval}.csv"
+    
+    def _load_cached_data(self, cache_file: Path) -> Optional[pd.DataFrame]:
+        """
+        Load data from cache file if it exists.
+        
+        Args:
+            cache_file: Path to cache file
+            
+        Returns:
+            DataFrame if cache exists, None otherwise
+        """
+        if cache_file.exists():
+            try:
+                df = pd.read_csv(cache_file, parse_dates=True, index_col=0)
+                df.columns = [col.lower() for col in df.columns]
+                return df
+            except Exception as e:
+                print(f"⚠ Warning: Could not load cache file: {e}")
+                return None
+        return None
+    
+    def _save_to_cache(self, df: pd.DataFrame, cache_file: Path):
+        """
+        Save data to cache file.
+        
+        Args:
+            df: DataFrame to save
+            cache_file: Path to cache file
+        """
+        try:
+            df.to_csv(cache_file)
+            print(f"✓ Data cached to {cache_file}")
+        except Exception as e:
+            print(f"⚠ Warning: Could not save cache: {e}")
+    
+    def load_yahoo(self, ticker: str, start_date: str, end_date: str, 
+                   interval: str = '1d', use_cache: bool = True) -> pd.DataFrame:
+        """
+        Load data from Yahoo Finance with smart caching.
+        
+        This method will:
+        1. Check if data exists in cache
+        2. Load cached data if available
+        3. Download only missing data if needed
+        4. Merge cached and new data
+        5. Save updated data to cache
         
         Args:
             ticker: Stock/crypto ticker symbol (e.g., 'BTC-USD', 'AAPL')
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
             interval: Data interval (1d, 1h, 5m, etc.)
+            use_cache: Whether to use cached data (default: True)
             
         Returns:
             DataFrame with OHLCV data
@@ -73,18 +129,97 @@ class DataProvider:
         except ImportError:
             raise ImportError("yfinance not installed. Run: pip install yfinance")
         
-        print(f"Downloading {ticker} data from Yahoo Finance...")
-        print(f"Period: {start_date} to {end_date}, Interval: {interval}")
+        from datetime import datetime
         
-        # Download data
-        data = yf.download(ticker, start=start_date, end=end_date, 
-                          interval=interval, progress=False)
+        # Convert dates to datetime
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date)
         
-        # Standardize column names
-        data.columns = [col.lower() for col in data.columns]
+        # Get cache file path
+        cache_file = self._get_cache_filename(ticker, interval)
         
-        self.data = data
-        print(f"✓ Downloaded {len(data)} rows")
+        # Try to load cached data
+        cached_data = None
+        if use_cache:
+            cached_data = self._load_cached_data(cache_file)
+        
+        if cached_data is not None and len(cached_data) > 0:
+            print(f"✓ Found cached data: {len(cached_data)} rows")
+            print(f"  Cached range: {cached_data.index[0].date()} to {cached_data.index[-1].date()}")
+            
+            # Check if cached data covers the requested range
+            cached_start = cached_data.index[0]
+            cached_end = cached_data.index[-1]
+            
+            # Determine what data needs to be downloaded
+            need_download_before = start_dt < cached_start
+            need_download_after = end_dt > cached_end
+            
+            if not need_download_before and not need_download_after:
+                # Cache covers the entire range
+                print(f"✓ Cache covers requested range, no download needed")
+                # Filter to requested range
+                self.data = cached_data.loc[start_dt:end_dt]
+                print(f"✓ Loaded {len(self.data)} rows from cache")
+                return self.data
+            
+            # Need to download additional data
+            new_data_parts = []
+            
+            if need_download_before:
+                print(f"Downloading data before {cached_start.date()}...")
+                before_data = yf.download(ticker, start=start_date, 
+                                         end=cached_start.strftime('%Y-%m-%d'),
+                                         interval=interval, progress=False)
+                if len(before_data) > 0:
+                    before_data.columns = [col.lower() for col in before_data.columns]
+                    new_data_parts.append(before_data)
+                    print(f"✓ Downloaded {len(before_data)} rows (before cache)")
+            
+            if need_download_after:
+                print(f"Downloading data after {cached_end.date()}...")
+                after_data = yf.download(ticker, 
+                                        start=(cached_end + pd.Timedelta(days=1)).strftime('%Y-%m-%d'),
+                                        end=end_date,
+                                        interval=interval, progress=False)
+                if len(after_data) > 0:
+                    after_data.columns = [col.lower() for col in after_data.columns]
+                    new_data_parts.append(after_data)
+                    print(f"✓ Downloaded {len(after_data)} rows (after cache)")
+            
+            # Merge all data
+            all_data = pd.concat([*new_data_parts, cached_data], axis=0)
+            all_data = all_data[~all_data.index.duplicated(keep='last')]
+            all_data = all_data.sort_index()
+            
+            # Save merged data to cache
+            self._save_to_cache(all_data, cache_file)
+            
+            # Filter to requested range
+            self.data = all_data.loc[start_dt:end_dt]
+            print(f"✓ Total data: {len(self.data)} rows")
+            
+        else:
+            # No cache or cache disabled, download all data
+            print(f"Downloading {ticker} data from Yahoo Finance...")
+            print(f"Period: {start_date} to {end_date}, Interval: {interval}")
+            
+            data = yf.download(ticker, start=start_date, end=end_date, 
+                              interval=interval, progress=False)
+            data.columns = data.columns.get_level_values(0)
+            
+            if len(data) == 0:
+                raise ValueError(f"No data downloaded for {ticker}")
+            
+            # Standardize column names
+            data.columns = [col.lower() for col in data.columns]
+            
+            # Save to cache
+            if use_cache:
+                self._save_to_cache(data, cache_file)
+            
+            self.data = data
+            print(f"✓ Downloaded {len(data)} rows")
         
         return self.data
     

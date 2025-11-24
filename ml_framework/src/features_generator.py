@@ -164,7 +164,7 @@ class FeaturesGenerator:
     
     def create_target(self, df: pd.DataFrame, 
                      target_type: str = 'classification',
-                     future_bars: int = 5,
+                     future_bars: int = 15,
                      threshold: float = 0.02) -> pd.DataFrame:
         """
         Create target variable for ML models.
