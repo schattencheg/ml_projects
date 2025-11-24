@@ -3,11 +3,11 @@ ML Framework - A comprehensive ML framework for financial data analysis.
 """
 
 # Legacy components (for backward compatibility)
-from .data_provider import DataProvider
-from .features_generator import FeaturesGenerator
+from src.data_provider import DataProvider
+from src.features_generator import FeaturesGenerator
 
 # New manager-based architecture
-from .managers import (
+from src.managers import (
     ModelManager,
     TrainManager,
     ScalerManager,
@@ -19,7 +19,7 @@ from .managers import (
 )
 
 # Model library
-from .models_lib import (
+from src.models_lib import (
     BaseModel,
     XGBoostModel,
     CatBoostModel,
@@ -32,7 +32,7 @@ from .models_lib import (
 )
 
 # Backtesting module
-from .backtesting import (
+from src.backtesting import (
     BaseBacktest,
     BacktestNoLib,
     BacktestBacktrader,
@@ -40,9 +40,17 @@ from .backtesting import (
 )
 
 # Strategies module
-from .strategies import (
+from src.strategies import (
     BaseStrategy,
     MLStrategy
+)
+
+# Target transformer
+from src.target_transformer import (
+    TargetTransformer,
+    get_target_transformer,
+    transform_for_model,
+    inverse_transform_predictions
 )
 
 __version__ = '0.2.0'
@@ -84,4 +92,10 @@ __all__ = [
     # Strategies
     'BaseStrategy',
     'MLStrategy',
+    
+    # Target Transformer
+    'TargetTransformer',
+    'get_target_transformer',
+    'transform_for_model',
+    'inverse_transform_predictions',
 ]

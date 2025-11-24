@@ -4,7 +4,7 @@ CatBoostModel - CatBoost classifier wrapper.
 
 import numpy as np
 from typing import Optional
-from .base_model import BaseModel
+from src.models_lib.base_model import BaseModel
 
 try:
     from catboost import CatBoostClassifier

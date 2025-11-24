@@ -5,7 +5,7 @@ MLStrategy - ML-based trading strategy with long/short positions and trailing st
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, Optional
-from .base_strategy import BaseStrategy
+from src.strategies.base_strategy import BaseStrategy
 
 
 class MLStrategy(BaseStrategy):

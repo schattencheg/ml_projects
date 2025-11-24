@@ -4,7 +4,7 @@ CNN Models - Convolutional Neural Network implementations.
 
 import numpy as np
 from typing import Optional, Tuple
-from .base_model import BaseModel
+from src.models_lib.base_model import BaseModel
 
 try:
     import tensorflow as tf

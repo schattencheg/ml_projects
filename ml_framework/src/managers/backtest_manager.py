@@ -9,8 +9,8 @@ from typing import Dict, Any, Optional, List, Literal
 from pathlib import Path
 import warnings
 
-from ..models_lib import BaseModel
-from .scaler_manager import ScalerManager
+from src.models_lib import BaseModel
+from src.managers.scaler_manager import ScalerManager
 
 
 class BacktestManager:

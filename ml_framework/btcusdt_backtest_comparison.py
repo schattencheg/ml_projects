@@ -90,7 +90,8 @@ def main():
         df_features,
         target_type='classification',
         future_bars=FUTURE_BARS,
-        threshold=THRESHOLD
+        threshold=THRESHOLD,
+        num_classes=3  # Three-class: -1 (decrease), 0 (neutral), +1 (increase)
     )
     df_features = df_features.dropna()
     

@@ -8,15 +8,15 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
 
-from .model_manager import ModelManager
-from .train_manager import TrainManager
-from .scaler_manager import ScalerManager
-from .mlflow_manager import MLFlowManager
-from .backtest_manager import BacktestManager
-from .result_manager import ResultManager
-from .visualization_manager import VisualizationManager
-from ..data_provider import DataProvider
-from ..features_generator import FeaturesGenerator
+from src.managers.model_manager import ModelManager
+from src.managers.train_manager import TrainManager
+from src.managers.scaler_manager import ScalerManager
+from src.managers.mlflow_manager import MLFlowManager
+from src.managers.backtest_manager import BacktestManager
+from src.managers.result_manager import ResultManager
+from src.managers.visualization_manager import VisualizationManager
+from src.data_provider import DataProvider
+from src.features_generator import FeaturesGenerator
 
 
 class PipelineManager:

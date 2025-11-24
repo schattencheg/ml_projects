@@ -5,7 +5,7 @@ BacktestNoLib - Custom backtesting implementation without external libraries.
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, Optional
-from .base_backtest import BaseBacktest
+from src.backtesting.base_backtest import BaseBacktest
 
 
 class BacktestNoLib(BaseBacktest):
