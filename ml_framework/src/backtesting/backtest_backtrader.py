@@ -70,7 +70,8 @@ class BacktestBacktrader(BaseBacktest):
         # Add predictions to dataframe
         df_bt = df.copy()
         df_bt['prediction'] = predictions
-        
+        position_size = self.position_size
+
         # Define Backtrader strategy
         class MLStrategy(bt.Strategy):
             params = (

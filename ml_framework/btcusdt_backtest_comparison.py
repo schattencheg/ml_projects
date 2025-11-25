@@ -14,6 +14,9 @@ Author: ML Framework
 Date: 2024-11-24
 """
 
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 import sys
 from pathlib import Path
 import pandas as pd
@@ -155,7 +158,7 @@ def main():
     
     y_pred = model.predict(X_test_scaled)
     accuracy = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred)
+    f1 = f1_score(y_test, y_pred, average='weighted')
     
     print(f"\n✓ Model trained")
     print(f"  Accuracy: {accuracy:.4f}")
