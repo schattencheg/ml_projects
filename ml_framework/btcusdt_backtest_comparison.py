@@ -30,6 +30,8 @@ from src.data_provider import DataProvider
 from src.features_generator import FeaturesGenerator
 from src.models_lib import LogisticRegressionModel, RandomForestModel
 from src.backtesting import BacktestNoLib, BacktestBacktrader, BacktestBacktestingPy
+from src.managers.result_manager import ResultManager
+from src.managers.visualization_manager import VisualizationManager
 
 
 def main():
@@ -206,6 +208,14 @@ def main():
         
         try:
             test_df_bt = df_features.copy() # Evaluating backtest on whole period (Train+Test+Val)
+            
+            # Preserve original OHLC columns for visualization
+            # Merge original OHLC data back if not present
+            ohlc_cols = ['open', 'high', 'low', 'close', 'volume']
+            for col in ohlc_cols:
+                if col not in test_df_bt.columns and col in df.columns:
+                    test_df_bt[col] = df[col]
+            
             results = backtest.run(
                 df=test_df_bt,
                 model=model,
@@ -224,7 +234,8 @@ def main():
             results_comparison[name] = {
                 'metrics': backtest.get_metrics(),
                 'execution_time': elapsed_time,
-                'success': True
+                'success': True,
+                'backtest': backtest  # Store backtest object for visualization
             }
             
         except Exception as e:
@@ -273,10 +284,68 @@ def main():
     print("\n" + comparison_df.to_string())
     
     # ========================================================================
-    # STEP 7: Recommendations
+    # STEP 7: Generate Comprehensive Visualizations
     # ========================================================================
     print("\n" + "="*80)
-    print("[STEP 7] RECOMMENDATIONS")
+    print("[STEP 7] GENERATING COMPREHENSIVE VISUALIZATIONS")
+    print("="*80)
+    
+    # Initialize managers
+    results_manager = ResultManager()
+    viz_manager = VisualizationManager()
+    
+    # Add backtest results to ResultManager
+    for name, result_data in results_comparison.items():
+        if result_data['success']:
+            print(f"\nAdding {name} results to visualization manager...")
+            
+            # Get the backtest object from stored results
+            backtest = result_data['backtest']
+            
+            # Get equity curve and convert to list if it's a Series
+            equity_curve = backtest.get_results().get('equity_curve', [])
+            if isinstance(equity_curve, pd.Series):
+                equity_curve = equity_curve.tolist()
+            elif not isinstance(equity_curve, list):
+                equity_curve = list(equity_curve) if hasattr(equity_curve, '__iter__') else []
+            
+            results_manager.add_backtest_results(
+                model_name=name,
+                results={
+                    'status': 'success',
+                    'equity_curve': equity_curve,
+                    'trades': backtest.get_trades(),
+                    'metrics': backtest.get_metrics(),
+                    'initial_capital': INITIAL_CAPITAL
+                }
+            )
+    
+    # Prepare visualization data
+    print("\nPreparing visualization data...")
+    viz_data = results_manager.prepare_backtest_visualization_data(test_df_bt)
+    
+    # Generate comprehensive backtest report with OHLC and trades
+    print("\nGenerating comprehensive HTML report...")
+    report_path = viz_manager.create_backtest_report(
+        backtest_results=viz_data,
+        save_dir=Path('results'),
+        df=test_df_bt  # Pass OHLC data for trade visualization
+    )
+    
+    if report_path:
+        print(f"\n✓ Comprehensive visualization report generated!")
+        print(f"  Report includes:")
+        print(f"    1. Equity curves comparison (all backtests on one chart)")
+        print(f"    2. OHLC charts with trade markers for each backtest")
+        print(f"    3. Performance metrics comparison")
+        print(f"    4. Returns distributions")
+        print(f"\n📊 Open the report to view: {report_path}")
+    
+    # ========================================================================
+    # STEP 8: Recommendations
+    # ========================================================================
+    print("\n" + "="*80)
+    print("[STEP 8] RECOMMENDATIONS")
     print("="*80)
     
     print("\n📊 Backend Comparison:")

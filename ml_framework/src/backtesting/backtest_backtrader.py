@@ -81,8 +81,15 @@ class BacktestBacktrader(BaseBacktest):
             def __init__(strategy_self):
                 strategy_self.order = None
                 strategy_self.trades_list = []
+                strategy_self.entry_bar = None
+                strategy_self.entry_price = None
+                strategy_self.entry_size = None
+                strategy_self.equity_curve = []  # Track equity at each bar
                 
             def next(strategy_self):
+                # Track equity at each bar
+                strategy_self.equity_curve.append(strategy_self.broker.getvalue())
+                
                 if strategy_self.order:
                     return
                 
@@ -102,18 +109,43 @@ class BacktestBacktrader(BaseBacktest):
             def notify_order(strategy_self, order):
                 if order.status in [order.Completed]:
                     if order.isbuy():
-                        pass
+                        # Store entry details
+                        strategy_self.entry_bar = len(strategy_self)
+                        strategy_self.entry_price = order.executed.price
+                        strategy_self.entry_size = order.executed.size
                     elif order.issell():
-                        pass
+                        # Store exit details
+                        if strategy_self.entry_bar is not None:
+                            exit_bar = len(strategy_self)
+                            exit_price = order.executed.price
+                            # This will be updated in notify_trade with actual PnL
                 
                 strategy_self.order = None
             
             def notify_trade(strategy_self, trade):
                 if trade.isclosed:
+                    # Get exit bar index (current bar)
+                    exit_bar = len(strategy_self)
+                    
+                    # Calculate exit price from PnL
+                    # PnL = (exit_price - entry_price) * size
+                    # exit_price = entry_price + (PnL / size)
+                    exit_price = strategy_self.entry_price + (trade.pnl / strategy_self.entry_size) if strategy_self.entry_size else 0
+                    
                     strategy_self.trades_list.append({
+                        'entry_idx': strategy_self.entry_bar,
+                        'exit_idx': exit_bar,
+                        'entry_price': strategy_self.entry_price,
+                        'exit_price': exit_price,
+                        'shares': strategy_self.entry_size,
                         'pnl': trade.pnl,
-                        'pnlcomm': trade.pnlcomm
+                        'exit_reason': 'signal'
                     })
+                    
+                    # Reset entry tracking
+                    strategy_self.entry_bar = None
+                    strategy_self.entry_price = None
+                    strategy_self.entry_size = None
         
         # Create Backtrader data feed
         class PandasData(bt.feeds.PandasData):
@@ -147,11 +179,18 @@ class BacktestBacktrader(BaseBacktest):
         # Extract trades
         self.trades = strategy.trades_list
         
-        # Create equity curve (approximation)
-        equity_curve = pd.Series(
-            np.linspace(self.initial_capital, final_value, len(df)),
-            index=df.index
-        )
+        # Get actual equity curve from strategy
+        equity_values = strategy.equity_curve
+        
+        # Ensure equity curve has same length as df
+        if len(equity_values) < len(df):
+            # Pad with initial capital if needed
+            equity_values = [self.initial_capital] * (len(df) - len(equity_values)) + equity_values
+        elif len(equity_values) > len(df):
+            # Trim if too long
+            equity_values = equity_values[:len(df)]
+        
+        equity_curve = pd.Series(equity_values, index=df.index)
         
         self.results = {
             'equity_curve': equity_curve,

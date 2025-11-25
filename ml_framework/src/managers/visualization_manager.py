@@ -29,13 +29,15 @@ class VisualizationManager:
         
     def create_train_report(self,
                            train_results: Dict[str, Any],
-                           save_dir: Path) -> str:
+                           save_dir: Path,
+                           show: bool = True) -> str:
         """
         Create HTML report for training results.
         
         Args:
             train_results: Training results dictionary
             save_dir: Directory to save report
+            show: If True, automatically open the report in browser (default: True)
             
         Returns:
             Path to saved HTML file
@@ -72,22 +74,26 @@ class VisualizationManager:
         
         # Save HTML report
         html_path = save_dir / 'train_report.html'
-        self._save_html_report(figures, html_path, "Training Results Report")
+        self._save_html_report(figures, html_path, "Training Results Report", show=show)
         
         print(f"✓ Saved training report: {html_path}")
+        if show:
+            print(f"🎉 Opening report in browser...")
         print("="*70 + "\n")
         
         return str(html_path)
     
     def create_test_report(self,
                           test_results: Dict[str, Any],
-                          save_dir: Path) -> str:
+                          save_dir: Path,
+                          show: bool = True) -> str:
         """
         Create HTML report for test results.
         
         Args:
             test_results: Test results dictionary
             save_dir: Directory to save report
+            show: If True, automatically open the report in browser (default: True)
             
         Returns:
             Path to saved HTML file
@@ -126,22 +132,28 @@ class VisualizationManager:
         
         # Save HTML report
         html_path = save_dir / 'test_report.html'
-        self._save_html_report(figures, html_path, "Test Results Report")
+        self._save_html_report(figures, html_path, "Test Results Report", show=show)
         
         print(f"✓ Saved test report: {html_path}")
+        if show:
+            print(f"🎉 Opening report in browser...")
         print("="*70 + "\n")
         
         return str(html_path)
     
     def create_backtest_report(self,
                               backtest_results: Dict[str, Any],
-                              save_dir: Path) -> str:
+                              save_dir: Path,
+                              df: Optional[pd.DataFrame] = None,
+                              show: bool = True) -> str:
         """
         Create HTML report for backtest results.
         
         Args:
             backtest_results: Backtest results dictionary
             save_dir: Directory to save report
+            df: Optional DataFrame with OHLC data for trade visualization
+            show: If True, automatically open the report in browser (default: True)
             
         Returns:
             Path to saved HTML file
@@ -163,27 +175,38 @@ class VisualizationManager:
         fig = self._create_backtest_metrics_comparison(backtest_results)
         figures.append(fig)
         
-        # 2. Individual Equity Curves
+        # 2. Equity Curves Comparison (NEW - All curves on one chart)
+        fig = self.create_equity_curves_comparison(backtest_results)
+        figures.append(fig)
+        
+        # 3. Individual Model Results
         for model_name, results in backtest_results.items():
+            # Individual equity curve
             if 'equity_curve' in results:
                 fig = self._create_equity_curve(model_name, results)
                 figures.append(fig)
-        
-        # 3. Comprehensive Equity Curves (all models together)
-        fig = self._create_comprehensive_equity_curves(backtest_results)
-        figures.append(fig)
-        
-        # 4. Returns Distribution
-        for model_name, results in backtest_results.items():
+            
+            # OHLC chart with trades (NEW)
+            if df is not None and 'trades' in results and len(results['trades']) > 0:
+                fig = self.create_ohlc_with_trades(
+                    df=df,
+                    trades=results['trades'],
+                    model_name=model_name
+                )
+                figures.append(fig)
+            
+            # Returns distribution
             if 'strategy_returns' in results:
                 fig = self._create_returns_distribution(model_name, results)
                 figures.append(fig)
         
         # Save HTML report
         html_path = save_dir / 'backtest_report.html'
-        self._save_html_report(figures, html_path, "Backtest Results Report")
+        self._save_html_report(figures, html_path, "Backtest Results Report", show=show)
         
         print(f"✓ Saved backtest report: {html_path}")
+        if show:
+            print(f"🎉 Opening report in browser...")
         print("="*70 + "\n")
         
         return str(html_path)
@@ -367,7 +390,302 @@ class VisualizationManager:
         
         return fig
     
-    def _save_html_report(self, figures: List[go.Figure], filepath: Path, title: str):
+    def create_equity_curves_comparison(self, backtest_results: Dict[str, Any]) -> go.Figure:
+        """
+        Create comparison plot of equity curves for all backtests.
+        
+        Args:
+            backtest_results: Dictionary with backtest results for each model/backend
+            
+        Returns:
+            Plotly figure with all equity curves
+        """
+        fig = go.Figure()
+        
+        # Add equity curve for each model/backend
+        for name, results in backtest_results.items():
+            if 'equity_curve' in results and len(results['equity_curve']) > 0:
+                equity = results['equity_curve']
+                
+                # Create hover text with metrics
+                metrics = results.get('metrics', {})
+                hover_text = (
+                    f"<b>{name}</b><br>"
+                    f"Final Capital: ${metrics.get('final_capital', 0):,.2f}<br>"
+                    f"Total Return: {metrics.get('total_return', 0)*100:.2f}%<br>"
+                    f"Sharpe Ratio: {metrics.get('sharpe_ratio', 0):.2f}<br>"
+                    f"Max Drawdown: {metrics.get('max_drawdown', 0)*100:.2f}%"
+                )
+                
+                fig.add_trace(go.Scatter(
+                    y=equity,
+                    mode='lines',
+                    name=name,
+                    hovertemplate=hover_text + '<extra></extra>',
+                    line=dict(width=2)
+                ))
+        
+        # Add initial capital reference line
+        if backtest_results:
+            first_result = next(iter(backtest_results.values()))
+            initial_capital = first_result.get('initial_capital', 10000)
+            max_len = max(len(r.get('equity_curve', [])) for r in backtest_results.values())
+            
+            fig.add_trace(go.Scatter(
+                y=[initial_capital] * max_len,
+                mode='lines',
+                name='Initial Capital',
+                line=dict(color='gray', dash='dash', width=1),
+                hovertemplate=f'Initial Capital: ${initial_capital:,.2f}<extra></extra>'
+            ))
+        
+        fig.update_layout(
+            title='<b>Equity Curves Comparison - All Backtests</b>',
+            xaxis_title='Time (bars)',
+            yaxis_title='Equity ($)',
+            height=600,
+            hovermode='x unified',
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01,
+                bgcolor="rgba(255, 255, 255, 0.8)"
+            ),
+            template='plotly_white'
+        )
+        
+        return fig
+    
+    def create_ohlc_with_trades(self, 
+                                 df: pd.DataFrame,
+                                 trades: List[Dict[str, Any]],
+                                 model_name: str,
+                                 price_col: str = 'close') -> go.Figure:
+        """
+        Create OHLC candlestick chart with trade entry/exit markers.
+        
+        Args:
+            df: DataFrame with OHLC data (must have 'open', 'high', 'low', 'close' columns)
+            trades: List of trade dictionaries with 'entry_idx', 'exit_idx', 'entry_price', 'exit_price', 'pnl'
+            model_name: Name of the model/backend
+            price_col: Name of the price column (default: 'close')
+            
+        Returns:
+            Plotly figure with OHLC chart and trade markers
+        """
+        fig = go.Figure()
+        
+        # Check if OHLC data is available (case-insensitive)
+        df_cols_lower = [col.lower() for col in df.columns]
+        has_ohlc = all(col in df_cols_lower for col in ['open', 'high', 'low', 'close'])
+        
+        # Create column mapping (handle both lowercase and uppercase)
+        col_map = {}
+        for col in df.columns:
+            col_map[col.lower()] = col
+        
+        if has_ohlc:
+            # Add candlestick chart (use mapped column names)
+            fig.add_trace(go.Candlestick(
+                x=df.index,
+                open=df[col_map['open']],
+                high=df[col_map['high']],
+                low=df[col_map['low']],
+                close=df[col_map['close']],
+                name='OHLC',
+                increasing_line_color='green',
+                decreasing_line_color='red',
+                showlegend=True
+            ))
+            
+            # Also add close price line for clarity
+            fig.add_trace(go.Scatter(
+                x=df.index,
+                y=df[col_map['close']],
+                mode='lines',
+                name='Close',
+                line=dict(color='blue', width=1),
+                opacity=0.7,
+                showlegend=True
+            ))
+        else:
+            # Fallback to line chart if OHLC not available
+            # Try to find close column with case-insensitive search
+            close_col = None
+            for col in df.columns:
+                if col.lower() == 'close':
+                    close_col = col
+                    break
+            
+            if close_col is None:
+                close_col = price_col
+            
+            fig.add_trace(go.Scatter(
+                x=df.index,
+                y=df[close_col],
+                mode='lines',
+                name='Close Price',
+                line=dict(color='blue', width=2)
+            ))
+        
+        # Add trade markers
+        # Normalize trades to list format
+        if trades is not None:
+            # Convert DataFrame to list of dicts if needed
+            if isinstance(trades, pd.DataFrame):
+                trades_list = []
+                for idx, row in trades.iterrows():
+                    trades_list.append({
+                        'entry_idx': int(row.get('EntryBar', idx)),
+                        'exit_idx': int(row.get('ExitBar', idx)),
+                        'entry_price': float(row.get('EntryPrice', 0)),
+                        'exit_price': float(row.get('ExitPrice', 0)),
+                        'shares': float(row.get('Size', 0)),
+                        'pnl': float(row.get('PnL', 0)),
+                        'exit_reason': str(row.get('ExitReason', 'signal'))
+                    })
+                trades = trades_list
+            elif not isinstance(trades, list):
+                trades = []
+        
+        if trades:
+            entry_indices = []
+            entry_prices = []
+            entry_hover = []
+            
+            exit_indices = []
+            exit_prices = []
+            exit_hover = []
+            
+            # Separate long and short entries
+            long_entry_indices = []
+            long_entry_prices = []
+            long_entry_hover = []
+            short_entry_indices = []
+            short_entry_prices = []
+            short_entry_hover = []
+            
+            for i, trade in enumerate(trades):
+                entry_idx = trade.get('entry_idx')
+                exit_idx = trade.get('exit_idx')
+                entry_price = trade.get('entry_price', 0)
+                exit_price = trade.get('exit_price', 0)
+                pnl = trade.get('pnl', 0)
+                exit_reason = trade.get('exit_reason', 'signal')
+                shares = trade.get('shares', 0)
+                
+                # Determine if LONG or SHORT based on shares sign
+                is_long = shares > 0
+                
+                # Entry markers
+                if entry_idx is not None and entry_idx < len(df):
+                    hover_text = (
+                        f"<b>Trade #{i+1} - {'LONG' if is_long else 'SHORT'} ENTRY</b><br>"
+                        f"Price: ${entry_price:.2f}<br>"
+                        f"Shares: {abs(shares):.2f}"
+                    )
+                    
+                    if is_long:
+                        # LONG entry: RED ARROW UP
+                        long_entry_indices.append(df.index[entry_idx])
+                        long_entry_prices.append(entry_price)
+                        long_entry_hover.append(hover_text)
+                    else:
+                        # SHORT entry: RED ARROW DOWN
+                        short_entry_indices.append(df.index[entry_idx])
+                        short_entry_prices.append(entry_price)
+                        short_entry_hover.append(hover_text)
+                
+                # Exit markers (same color CROSS)
+                if exit_idx is not None and exit_idx < len(df):
+                    exit_indices.append(df.index[exit_idx])
+                    exit_prices.append(exit_price)
+                    
+                    pnl_color = 'green' if pnl > 0 else 'red'
+                    exit_hover.append(
+                        f"<b>Trade #{i+1} - EXIT</b><br>"
+                        f"Price: ${exit_price:.2f}<br>"
+                        f"PnL: ${pnl:.2f}<br>"
+                        f"Return: {(exit_price/entry_price - 1)*100:.2f}%<br>"
+                        f"Reason: {exit_reason}"
+                    )
+            
+            # Add LONG entry markers (RED arrows UP)
+            if long_entry_indices:
+                fig.add_trace(go.Scatter(
+                    x=long_entry_indices,
+                    y=long_entry_prices,
+                    mode='markers',
+                    name='Long Entry',
+                    marker=dict(
+                        symbol='triangle-up',
+                        size=12,
+                        color='red',
+                        line=dict(color='darkred', width=1)
+                    ),
+                    hovertext=long_entry_hover,
+                    hovertemplate='%{hovertext}<extra></extra>'
+                ))
+            
+            # Add SHORT entry markers (RED arrows DOWN)
+            if short_entry_indices:
+                fig.add_trace(go.Scatter(
+                    x=short_entry_indices,
+                    y=short_entry_prices,
+                    mode='markers',
+                    name='Short Entry',
+                    marker=dict(
+                        symbol='triangle-down',
+                        size=12,
+                        color='red',
+                        line=dict(color='darkred', width=1)
+                    ),
+                    hovertext=short_entry_hover,
+                    hovertemplate='%{hovertext}<extra></extra>'
+                ))
+            
+            # Add exit markers (colored CROSS)
+            if exit_indices:
+                # Determine colors based on PnL
+                exit_colors = ['green' if trade.get('pnl', 0) > 0 else 'red' 
+                              for trade in trades]
+                
+                fig.add_trace(go.Scatter(
+                    x=exit_indices,
+                    y=exit_prices,
+                    mode='markers',
+                    name='Exit',
+                    marker=dict(
+                        symbol='x',
+                        size=12,
+                        color=exit_colors,
+                        line=dict(width=2)
+                    ),
+                    hovertext=exit_hover,
+                    hovertemplate='%{hovertext}<extra></extra>'
+                ))
+        
+        fig.update_layout(
+            title=f'<b>{model_name} - Price Chart with Trades</b>',
+            xaxis_title='Date/Time',
+            yaxis_title='Price ($)',
+            height=600,
+            xaxis_rangeslider_visible=False,
+            hovermode='x unified',
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="right",
+                x=0.99,
+                bgcolor="rgba(255, 255, 255, 0.8)"
+            ),
+            template='plotly_white'
+        )
+        
+        return fig
+    
+    def _save_html_report(self, figures: List[go.Figure], filepath: Path, title: str, show: bool = True):
         """
         Save multiple figures to a single HTML file with charts stacked vertically.
         
@@ -375,6 +693,7 @@ class VisualizationManager:
             figures: List of Plotly figures
             filepath: Path to save HTML file
             title: Report title
+            show: If True, automatically open the report in the default browser (default: True)
         """
         html_content = f"""
 <!DOCTYPE html>
@@ -424,3 +743,11 @@ class VisualizationManager:
         
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
+        
+        # Automatically open in browser if requested
+        if show:
+            import webbrowser
+            import os
+            # Convert to absolute path and open in browser
+            abs_path = os.path.abspath(filepath)
+            webbrowser.open('file://' + abs_path)

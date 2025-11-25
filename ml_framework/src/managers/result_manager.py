@@ -328,6 +328,72 @@ class ResultManager:
         
         print(f"✓ Saved backtest detailed results")
     
+    def prepare_backtest_visualization_data(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Prepare backtest results with additional data for visualization.
+        
+        Args:
+            df: DataFrame with OHLC data used in backtesting
+            
+        Returns:
+            Dictionary with backtest results enhanced with visualization data
+        """
+        viz_data = {}
+        
+        for model_name, results in self.backtest_results.items():
+            viz_data[model_name] = results.copy()
+            
+            # Normalize trades to list of dictionaries
+            if 'trades' not in viz_data[model_name]:
+                viz_data[model_name]['trades'] = []
+            else:
+                trades = viz_data[model_name]['trades']
+                
+                # Convert DataFrame to list of dictionaries
+                if isinstance(trades, pd.DataFrame):
+                    # Convert DataFrame to list of dicts
+                    trades_list = []
+                    for idx, row in trades.iterrows():
+                        trade_dict = {
+                            'entry_idx': int(row.get('EntryBar', idx)) if 'EntryBar' in row else idx,
+                            'exit_idx': int(row.get('ExitBar', idx)) if 'ExitBar' in row else idx,
+                            'entry_price': float(row.get('EntryPrice', 0)) if 'EntryPrice' in row else 0.0,
+                            'exit_price': float(row.get('ExitPrice', 0)) if 'ExitPrice' in row else 0.0,
+                            'shares': float(row.get('Size', 0)) if 'Size' in row else 0.0,
+                            'pnl': float(row.get('PnL', 0)) if 'PnL' in row else 0.0,
+                            'exit_reason': str(row.get('ExitReason', 'signal')) if 'ExitReason' in row else 'signal'
+                        }
+                        trades_list.append(trade_dict)
+                    viz_data[model_name]['trades'] = trades_list
+                elif not isinstance(trades, list):
+                    # If it's not a list or DataFrame, try to convert to list
+                    viz_data[model_name]['trades'] = list(trades) if hasattr(trades, '__iter__') else []
+            
+            # Add OHLC data reference
+            viz_data[model_name]['has_ohlc_data'] = all(
+                col in df.columns for col in ['open', 'high', 'low', 'close']
+            )
+            
+            # Ensure equity curve is array-like
+            if 'equity_curve' in viz_data[model_name]:
+                equity = viz_data[model_name]['equity_curve']
+                if not isinstance(equity, (list, np.ndarray)):
+                    viz_data[model_name]['equity_curve'] = [equity]
+            
+            # Add initial capital if not present
+            if 'initial_capital' not in viz_data[model_name]:
+                if 'metrics' in viz_data[model_name]:
+                    final_capital = viz_data[model_name]['metrics'].get('final_capital', 10000)
+                    total_return = viz_data[model_name]['metrics'].get('total_return', 0)
+                    if total_return != 0:
+                        viz_data[model_name]['initial_capital'] = final_capital / (1 + total_return)
+                    else:
+                        viz_data[model_name]['initial_capital'] = 10000
+                else:
+                    viz_data[model_name]['initial_capital'] = 10000
+        
+        return viz_data
+    
     def print_summary(self):
         """Print a summary of all results."""
         summary = self.generate_summary()
@@ -336,19 +402,27 @@ class ResultManager:
         print("RESULTS SUMMARY")
         print("="*70)
         
-        print(f"\nOverview:")
-        print(f"  Models trained:    {summary['num_models_trained']}")
-        print(f"  Models tested:     {summary['num_models_tested']}")
-        print(f"  Models backtested: {summary['num_models_backtested']}")
+        print("\nOverview:")
+        num_models_trained = summary['num_models_trained'] if 'num_models_trained' in summary else -1
+        print("  Models trained:    " + f'{num_models_trained}')        
+        num_models_tested = summary['num_models_tested'] if 'num_models_tested' in summary else -1
+        print("  Models tested:     " + f'{num_models_tested}')        
+        num_models_backtested = summary['num_models_backtested'] if 'num_models_backtested' in summary else -1
+        print("  Models backtested: " + f'{num_models_backtested}')
         
         if 'best_test_model' in summary:
             print(f"\nBest Test Model:")
-            print(f"  Model:    {summary['best_test_model']}")
-            print(f"  F1 Score: {summary['best_test_f1']:.4f}")
+            model = summary['best_test_model'] if 'best_test_model' in summary else 'N/A'
+            print("  Model:        " + f'{model}')
+            f1 = summary['best_test_f1'] if 'best_test_f1' in summary else -0.0
+            print("  F1 Score:     " + f'{f1:.4f}')
         
         if 'best_backtest_model' in summary:
             print(f"\nBest Backtest Model:")
-            print(f"  Model:        {summary['best_backtest_model']}")
-            print(f"  Sharpe Ratio: {summary['best_backtest_sharpe']:.4f}")
+            model = summary['best_backtest_model'] if 'best_backtest_model' in summary else 'N/A'
+            print("  Model:        " + f'{model}')
+            sharpe = summary['best_backtest_sharpe'] if 'best_backtest_sharpe' in summary else -0.0
+            sharpe = sharpe if sharpe is not None else -0.0
+            print("  Sharpe Ratio: " + f'{sharpe:.4f}')
         
         print("="*70 + "\n")

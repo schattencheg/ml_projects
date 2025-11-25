@@ -182,6 +182,8 @@ class DataProvider:
                                         start=(cached_end + pd.Timedelta(days=1)).strftime('%Y-%m-%d'),
                                         end=end_date,
                                         interval=interval, progress=False)
+                after_data.columns = after_data.columns.get_level_values(0)
+
                 if len(after_data) > 0:
                     after_data.columns = [col.lower() for col in after_data.columns]
                     new_data_parts.append(after_data)
