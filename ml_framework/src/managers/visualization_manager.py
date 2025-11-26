@@ -141,6 +141,260 @@ class VisualizationManager:
         
         return str(html_path)
     
+    def create_feature_importance_report(self,
+                                          feature_importance: pd.Series,
+                                          save_dir: Path,
+                                          selected_features: Optional[List[str]] = None,
+                                          dropped_features: Optional[List[str]] = None,
+                                          method: str = 'unknown',
+                                          correlation_matrix: Optional[pd.DataFrame] = None,
+                                          show: bool = True) -> str:
+        """
+        Create HTML report for feature importance analysis.
+        
+        Args:
+            feature_importance: Series with feature names as index and importance as values
+            save_dir: Directory to save report
+            selected_features: List of selected feature names
+            dropped_features: List of dropped feature names
+            method: Feature selection method used
+            correlation_matrix: Optional correlation matrix for heatmap
+            show: If True, automatically open the report in browser
+            
+        Returns:
+            Path to saved HTML file
+        """
+        print("\n" + "="*70)
+        print("GENERATING FEATURE IMPORTANCE REPORT")
+        print("="*70)
+        
+        save_dir = Path(save_dir) / 'reports' / 'features'
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        figures = []
+        
+        # 1. Feature Importance Bar Chart (Top 30)
+        fig = self._create_feature_importance_bar(feature_importance, top_n=30)
+        figures.append(fig)
+        
+        # 2. Feature Importance Horizontal Bar (All features)
+        fig = self._create_feature_importance_horizontal(feature_importance)
+        figures.append(fig)
+        
+        # 3. Cumulative Importance Chart
+        fig = self._create_cumulative_importance(feature_importance)
+        figures.append(fig)
+        
+        # 4. Selected vs Dropped Features Summary
+        if selected_features is not None and dropped_features is not None:
+            fig = self._create_feature_selection_summary(
+                feature_importance, selected_features, dropped_features, method
+            )
+            figures.append(fig)
+        
+        # 5. Correlation Heatmap (if provided)
+        if correlation_matrix is not None:
+            fig = self._create_correlation_heatmap(correlation_matrix)
+            figures.append(fig)
+        
+        # 6. Feature Importance Distribution
+        fig = self._create_importance_distribution(feature_importance)
+        figures.append(fig)
+        
+        # Save HTML report
+        html_path = save_dir / 'feature_importance_report.html'
+        self._save_html_report(figures, html_path, "Feature Importance Analysis Report", show=show)
+        
+        print(f"✓ Saved feature importance report: {html_path}")
+        if show:
+            print(f"🎉 Opening report in browser...")
+        print("="*70 + "\n")
+        
+        return str(html_path)
+    
+    def _create_feature_importance_bar(self, importance: pd.Series, top_n: int = 30) -> go.Figure:
+        """Create vertical bar chart of top N feature importances."""
+        top_features = importance.head(top_n)
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=top_features.index.tolist(),
+                y=top_features.values.tolist(),
+                text=[f'{v:.4f}' for v in top_features.values],
+                textposition='auto',
+                marker_color='steelblue'
+            )
+        ])
+        
+        fig.update_layout(
+            title=f'<b>Top {top_n} Feature Importance</b>',
+            xaxis_title='Feature',
+            yaxis_title='Importance',
+            height=500,
+            xaxis_tickangle=-45
+        )
+        
+        return fig
+    
+    def _create_feature_importance_horizontal(self, importance: pd.Series) -> go.Figure:
+        """Create horizontal bar chart of all feature importances."""
+        # Sort ascending for horizontal bar (top features at top)
+        sorted_importance = importance.sort_values(ascending=True)
+        
+        # Limit to reasonable number for display
+        if len(sorted_importance) > 50:
+            sorted_importance = sorted_importance.tail(50)
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=sorted_importance.values.tolist(),
+                y=sorted_importance.index.tolist(),
+                orientation='h',
+                text=[f'{v:.4f}' for v in sorted_importance.values],
+                textposition='auto',
+                marker_color='steelblue'
+            )
+        ])
+        
+        fig.update_layout(
+            title='<b>Feature Importance (All Features)</b>',
+            xaxis_title='Importance',
+            yaxis_title='Feature',
+            height=max(400, len(sorted_importance) * 20)
+        )
+        
+        return fig
+    
+    def _create_cumulative_importance(self, importance: pd.Series) -> go.Figure:
+        """Create cumulative importance chart."""
+        sorted_importance = importance.sort_values(ascending=False)
+        cumulative = sorted_importance.cumsum() / sorted_importance.sum() * 100
+        
+        fig = go.Figure()
+        
+        # Cumulative line
+        fig.add_trace(go.Scatter(
+            x=list(range(1, len(cumulative) + 1)),
+            y=cumulative.values.tolist(),
+            mode='lines+markers',
+            name='Cumulative Importance',
+            line=dict(color='steelblue', width=2),
+            marker=dict(size=4)
+        ))
+        
+        # 80% threshold line
+        fig.add_hline(y=80, line_dash="dash", line_color="red",
+                      annotation_text="80% threshold")
+        
+        # 95% threshold line
+        fig.add_hline(y=95, line_dash="dash", line_color="orange",
+                      annotation_text="95% threshold")
+        
+        # Find number of features for 80% and 95%
+        n_80 = (cumulative <= 80).sum() + 1
+        n_95 = (cumulative <= 95).sum() + 1
+        
+        fig.update_layout(
+            title=f'<b>Cumulative Feature Importance</b><br>'
+                  f'<sub>{n_80} features for 80%, {n_95} features for 95% of importance</sub>',
+            xaxis_title='Number of Features',
+            yaxis_title='Cumulative Importance (%)',
+            height=450
+        )
+        
+        return fig
+    
+    def _create_feature_selection_summary(self, 
+                                           importance: pd.Series,
+                                           selected: List[str],
+                                           dropped: List[str],
+                                           method: str) -> go.Figure:
+        """Create summary chart of selected vs dropped features."""
+        # Create DataFrame for visualization
+        all_features = importance.index.tolist()
+        colors = ['green' if f in selected else 'red' for f in all_features]
+        
+        sorted_importance = importance.sort_values(ascending=False)
+        sorted_colors = ['green' if f in selected else 'red' for f in sorted_importance.index]
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=sorted_importance.index.tolist()[:30],
+                y=sorted_importance.values.tolist()[:30],
+                marker_color=sorted_colors[:30],
+                text=['Selected' if c == 'green' else 'Dropped' for c in sorted_colors[:30]],
+                textposition='auto'
+            )
+        ])
+        
+        fig.update_layout(
+            title=f'<b>Feature Selection Summary ({method.upper()})</b><br>'
+                  f'<sub>Selected: {len(selected)} | Dropped: {len(dropped)}</sub>',
+            xaxis_title='Feature',
+            yaxis_title='Importance',
+            height=500,
+            xaxis_tickangle=-45
+        )
+        
+        return fig
+    
+    def _create_correlation_heatmap(self, corr_matrix: pd.DataFrame) -> go.Figure:
+        """Create correlation matrix heatmap."""
+        # Limit size for readability
+        if len(corr_matrix) > 30:
+            # Take top 30 features by variance
+            variances = corr_matrix.var()
+            top_features = variances.nlargest(30).index.tolist()
+            corr_matrix = corr_matrix.loc[top_features, top_features]
+        
+        fig = go.Figure(data=go.Heatmap(
+            z=corr_matrix.values.tolist(),
+            x=corr_matrix.columns.tolist(),
+            y=corr_matrix.index.tolist(),
+            colorscale='RdBu_r',
+            zmid=0,
+            text=[[f'{v:.2f}' for v in row] for row in corr_matrix.values],
+            texttemplate='%{text}',
+            textfont={"size": 8}
+        ))
+        
+        fig.update_layout(
+            title='<b>Feature Correlation Matrix</b>',
+            height=700,
+            width=900,
+            xaxis_tickangle=-45
+        )
+        
+        return fig
+    
+    def _create_importance_distribution(self, importance: pd.Series) -> go.Figure:
+        """Create distribution histogram of feature importances."""
+        fig = go.Figure(data=[
+            go.Histogram(
+                x=importance.values.tolist(),
+                nbinsx=30,
+                marker_color='steelblue'
+            )
+        ])
+        
+        # Add mean and median lines
+        mean_val = importance.mean()
+        median_val = importance.median()
+        
+        fig.add_vline(x=mean_val, line_dash="dash", line_color="red",
+                      annotation_text=f"Mean: {mean_val:.4f}")
+        fig.add_vline(x=median_val, line_dash="dash", line_color="green",
+                      annotation_text=f"Median: {median_val:.4f}")
+        
+        fig.update_layout(
+            title='<b>Feature Importance Distribution</b>',
+            xaxis_title='Importance',
+            yaxis_title='Count',
+            height=400
+        )
+        
+        return fig
+    
     def create_backtest_report(self,
                               backtest_results: Dict[str, Any],
                               save_dir: Path,

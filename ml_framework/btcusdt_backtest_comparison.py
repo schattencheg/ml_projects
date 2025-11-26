@@ -32,6 +32,9 @@ from src.models_lib import LogisticRegressionModel, RandomForestModel
 from src.backtesting import BacktestNoLib, BacktestBacktrader, BacktestBacktestingPy
 from src.managers.result_manager import ResultManager
 from src.managers.visualization_manager import VisualizationManager
+from src.managers.feature_selector import FeatureSelector
+from src.managers.run_manager import RunManager
+from src.managers.scaler_manager import ScalerManager
 
 
 def main():
@@ -138,12 +141,66 @@ def main():
     #endregion
     
     # ========================================================================
-    # STEP 4: Train Model
+    # STEP 4: Feature Importance Analysis (BEFORE training)
+    # ========================================================================
+    #region 'Feature Importance'
+    print("\n" + "="*80)
+    print("[STEP 4] FEATURE IMPORTANCE ANALYSIS")
+    print("="*80)
+    
+    # Initialize RunManager for artifact storage
+    run_manager = RunManager(base_dir='models')
+    run_manager.initialize()
+    
+    # Initialize VisualizationManager
+    viz_manager = VisualizationManager()
+    
+    # Analyze feature importance using tree-based method
+    feature_selector = FeatureSelector(method='tree')
+    X_train_df = train_df[feature_cols]
+    y_train_series = train_df['target']
+    
+    feature_selector.fit(X_train_df, y_train_series)
+    feature_importance = feature_selector.get_feature_importance()
+    selected_features = feature_selector.get_selected_features()
+    dropped_features = feature_selector.get_dropped_features()
+    
+    # Generate feature importance report
+    correlation_matrix = X_train_df.corr()
+    viz_manager.create_feature_importance_report(
+        feature_importance=feature_importance,
+        save_dir=run_manager.get_run_dir(),
+        selected_features=selected_features,
+        dropped_features=dropped_features,
+        method='tree',
+        correlation_matrix=correlation_matrix,
+        show=False  # Don't open browser yet
+    )
+    
+    # Save feature importance to run
+    run_manager.save_feature_importance(
+        feature_importance=feature_importance,
+        selected_features=selected_features,
+        dropped_features=dropped_features,
+        method='tree'
+    )
+    
+    feature_selector.print_summary()
+    #endregion
+    
+    # ========================================================================
+    # STEP 5: Train Model
     # ========================================================================
     #region 'Train Model'
     print("\n" + "="*80)
-    print("[STEP 4] TRAINING MODEL")
+    print("[STEP 5] TRAINING MODEL")
     print("="*80)
+    
+    # Scale features using ScalerManager
+    scaler_manager = ScalerManager(scaler_type='standard')
+    X_train_scaled = scaler_manager.fit_transform(X_train)
+    X_val_scaled = scaler_manager.transform(val_df[feature_cols].values)
+    X_test_scaled = scaler_manager.transform(X_test)
     
     # Use Random Forest for better performance
     model = RandomForestModel(
@@ -155,19 +212,10 @@ def main():
     )
     
     print("\nTraining Random Forest...")
-    model.fit(X_train, y_train)
+    model.fit(X_train_scaled, y_train)
     
     # Evaluate
     from sklearn.metrics import accuracy_score, f1_score
-    from sklearn.preprocessing import StandardScaler
-    
-    # Scale features
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-    
-    # Re-train on scaled data
-    model.fit(X_train_scaled, y_train)
     
     y_pred = model.predict(X_test_scaled)
     accuracy = accuracy_score(y_test, y_pred)
@@ -176,14 +224,43 @@ def main():
     print(f"\n✓ Model trained")
     print(f"  Accuracy: {accuracy:.4f}")
     print(f"  F1 Score: {f1:.4f}")
+    
+    # Save model, scaler, and datasets
+    run_manager.save_models(
+        models={'RandomForest': model},
+        metrics={'RandomForest': {'accuracy': accuracy, 'f1_score': f1}}
+    )
+    run_manager.save_scaler(scaler_manager)
+    run_manager.save_datasets(
+        X_train=train_df[feature_cols], y_train=train_df['target'],
+        X_val=val_df[feature_cols], y_val=val_df['target'],
+        X_test=test_df[feature_cols], y_test=test_df['target'],
+        df_full=df_features
+    )
+    
+    # Save configuration
+    run_manager.save_config({
+        'ticker': TICKER,
+        'start_date': START_DATE,
+        'end_date': END_DATE,
+        'interval': INTERVAL,
+        'future_bars': FUTURE_BARS,
+        'threshold': THRESHOLD,
+        'initial_capital': INITIAL_CAPITAL,
+        'commission': COMMISSION,
+        'position_size': POSITION_SIZE,
+        'bars_to_hold': BARS_TO_HOLD,
+        'model': 'RandomForest',
+        'feature_count': len(feature_cols)
+    })
     #endregion
     
     # ========================================================================
-    # STEP 5: Run Backtests
+    # STEP 6: Run Backtests
     # ========================================================================
     #region 'Run Backtests'
     print("\n" + "="*80)
-    print("[STEP 5] RUNNING BACKTESTS - COMPARING ALL BACKENDS")
+    print("[STEP 6] RUNNING BACKTESTS - COMPARING ALL BACKENDS")
     print("="*80)
     
     # Prepare test data with all required columns
@@ -238,7 +315,7 @@ def main():
             results = backtest.run(
                 df=test_df_bt,
                 model=model,
-                scaler=scaler,
+                scaler=scaler_manager.scaler,
                 feature_cols=feature_cols,
                 price_col='close'
             )
@@ -296,11 +373,11 @@ def main():
     #endregion
     
     # ========================================================================
-    # STEP 6: Compare Results
+    # STEP 7: Compare Results
     # ========================================================================
     #region 'Compare Results'
     print("\n" + "="*80)
-    print("[STEP 6] BACKTEST COMPARISON SUMMARY")
+    print("[STEP 7] BACKTEST COMPARISON SUMMARY")
     print("="*80)
     
     # Create comparison table
@@ -333,36 +410,11 @@ def main():
     #endregion
     
     # ========================================================================
-    # STEP 7: Generate Visualizations
-    # ========================================================================
-    #region 'Generate Visualizations'
-    if False:
-        print("\n" + "="*80)
-        print("[STEP 5] GENERATING VISUALIZATIONS")
-        print("="*80)
-        
-        viz_manager = VisualizationManager()
-        
-        # Prepare visualization data
-        viz_data = results_manager.prepare_backtest_visualization_data(test_df_bt)
-        
-        # Create comprehensive backtest report with OHLC and trades
-        report_path = viz_manager.create_backtest_report(
-            backtest_results=viz_data,
-            save_dir=Path('results'),
-            df=test_df_bt  # Pass OHLC data for trade visualization
-        )
-        
-        print(f"\n✓ Visualization report generated")
-        print(f"  Report path: {report_path}")
-    #endregion
-    
-    # ========================================================================
     # STEP 8: Generate Comprehensive Visualizations
     # ========================================================================
     #region 'Generate Comprehensive Visualizations'
     print("\n" + "="*80)
-    print("[STEP 7] GENERATING COMPREHENSIVE VISUALIZATIONS")
+    print("[STEP 8] GENERATING COMPREHENSIVE VISUALIZATIONS")
     print("="*80)
     
     # Initialize managers
@@ -449,8 +501,12 @@ def main():
             print(f"\n🏆 Best performing backend: {best_backend}")
             print(f"   Total Return: {best_return*100:.2f}%")
     
+    # Print run summary
+    run_manager.print_summary()
+    
     print("\n" + "="*80)
     print("🎉 Backtest comparison completed successfully!")
+    print(f"📁 All artifacts saved to: {run_manager.get_run_dir()}")
     print("="*80 + "\n")
     #endregion
     return results_comparison

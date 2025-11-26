@@ -13,7 +13,7 @@ from src.target_transformer import TargetTransformer, get_target_transformer, tr
 from src.managers import (
     ModelManager, TrainManager, ScalerManager, MLFlowManager,
     BacktestManager, ResultManager, VisualizationManager, PipelineManager,
-    FeatureSelector, HyperparameterOptimizer
+    FeatureSelector, HyperparameterOptimizer, RunManager
 )
 
 # Models
@@ -40,7 +40,7 @@ __all__ = [
     # Managers
     'ModelManager', 'TrainManager', 'ScalerManager', 'MLFlowManager',
     'BacktestManager', 'ResultManager', 'VisualizationManager', 'PipelineManager',
-    'FeatureSelector', 'HyperparameterOptimizer',
+    'FeatureSelector', 'HyperparameterOptimizer', 'RunManager',
     
     # Models
     'BaseModel', 'XGBoostModel', 'CatBoostModel',

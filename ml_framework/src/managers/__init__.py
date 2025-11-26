@@ -12,6 +12,7 @@ from src.managers.visualization_manager import VisualizationManager
 from src.managers.pipeline_manager import PipelineManager
 from src.managers.feature_selector import FeatureSelector
 from src.managers.hyperparameter_optimizer import HyperparameterOptimizer
+from src.managers.run_manager import RunManager
 
 __all__ = [
     'ModelManager',
@@ -23,5 +24,6 @@ __all__ = [
     'VisualizationManager',
     'PipelineManager',
     'FeatureSelector',
-    'HyperparameterOptimizer'
+    'HyperparameterOptimizer',
+    'RunManager'
 ]
