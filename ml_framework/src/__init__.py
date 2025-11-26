@@ -1,101 +1,58 @@
 """
-ML Framework - A comprehensive ML framework for financial data analysis.
+ML Framework - A modular ML framework for financial data analysis and backtesting.
 """
 
-# Legacy components (for backward compatibility)
+__version__ = '0.3.0'
+
+# Core data components
 from src.data_provider import DataProvider
 from src.features_generator import FeaturesGenerator
+from src.target_transformer import TargetTransformer, get_target_transformer, transform_for_model, inverse_transform_predictions
 
-# New manager-based architecture
+# Managers
 from src.managers import (
-    ModelManager,
-    TrainManager,
-    ScalerManager,
-    MLFlowManager,
-    BacktestManager,
-    ResultManager,
-    VisualizationManager,
-    PipelineManager
+    ModelManager, TrainManager, ScalerManager, MLFlowManager,
+    BacktestManager, ResultManager, VisualizationManager, PipelineManager,
+    FeatureSelector, HyperparameterOptimizer
 )
 
-# Model library
+# Models
 from src.models_lib import (
-    BaseModel,
-    XGBoostModel,
-    CatBoostModel,
-    LinearRegressionModel,
-    LogisticRegressionModel,
-    RandomForestModel,
-    SimpleCNN,
-    DeepCNN,
-    ResidualCNN
+    BaseModel, XGBoostModel, CatBoostModel,
+    LinearRegressionModel, LogisticRegressionModel, RandomForestModel,
+    BaseCNN, SimpleCNN, DeepCNN, ResidualCNN
 )
 
-# Backtesting module
-from src.backtesting import (
-    BaseBacktest,
-    BacktestNoLib,
-    BacktestBacktrader,
-    BacktestBacktestingPy
-)
+# Backtesting
+from src.backtesting import BaseBacktest, BacktestNoLib, BacktestBacktrader, BacktestBacktestingPy
 
-# Strategies module
-from src.strategies import (
-    BaseStrategy,
-    MLStrategy
-)
+# Strategies
+from src.strategies import BaseStrategy, MLStrategy
 
-# Target transformer
-from src.target_transformer import (
-    TargetTransformer,
-    get_target_transformer,
-    transform_for_model,
-    inverse_transform_predictions
-)
-
-__version__ = '0.2.0'
+# Risk Management
+from src.risk_management import BaseRiskManager, FixedBarsCountRiskManager
 
 __all__ = [
-    # Data components
-    'DataProvider',
-    'FeaturesGenerator',
+    # Data
+    'DataProvider', 'FeaturesGenerator', 'TargetTransformer',
+    'get_target_transformer', 'transform_for_model', 'inverse_transform_predictions',
     
     # Managers
-    'ModelManager',
-    'TrainManager',
-    'ScalerManager',
-    'MLFlowManager',
-    'BacktestManager',
-    'ResultManager',
-    'VisualizationManager',
-    'PipelineManager',
-    'FeatureSelector',
-    'HyperparameterOptimizer',
+    'ModelManager', 'TrainManager', 'ScalerManager', 'MLFlowManager',
+    'BacktestManager', 'ResultManager', 'VisualizationManager', 'PipelineManager',
+    'FeatureSelector', 'HyperparameterOptimizer',
     
     # Models
-    'BaseModel',
-    'XGBoostModel',
-    'CatBoostModel',
-    'LinearRegressionModel',
-    'LogisticRegressionModel',
-    'RandomForestModel',
-    'SimpleCNN',
-    'DeepCNN',
-    'ResidualCNN',
+    'BaseModel', 'XGBoostModel', 'CatBoostModel',
+    'LinearRegressionModel', 'LogisticRegressionModel', 'RandomForestModel',
+    'BaseCNN', 'SimpleCNN', 'DeepCNN', 'ResidualCNN',
     
     # Backtesting
-    'BaseBacktest',
-    'BacktestNoLib',
-    'BacktestBacktrader',
-    'BacktestBacktestingPy',
+    'BaseBacktest', 'BacktestNoLib', 'BacktestBacktrader', 'BacktestBacktestingPy',
     
     # Strategies
-    'BaseStrategy',
-    'MLStrategy',
+    'BaseStrategy', 'MLStrategy',
     
-    # Target Transformer
-    'TargetTransformer',
-    'get_target_transformer',
-    'transform_for_model',
-    'inverse_transform_predictions',
+    # Risk Management
+    'BaseRiskManager', 'FixedBarsCountRiskManager',
 ]
