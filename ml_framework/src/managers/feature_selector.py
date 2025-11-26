@@ -403,3 +403,71 @@ class FeatureSelector:
         status = "fitted" if self.is_fitted else "not fitted"
         n_features = len(self.selected_features) if self.selected_features else "unknown"
         return f"FeatureSelector(method='{self.method}', {status}, features={n_features})"
+    
+    # =========================================================================
+    # JUPYTER-FRIENDLY METHODS
+    # =========================================================================
+    
+    def display_importance(self, top_n: int = 20) -> pd.DataFrame:
+        """
+        Display feature importance as a styled DataFrame (Jupyter-friendly).
+        
+        Args:
+            top_n: Number of top features to display
+            
+        Returns:
+            DataFrame with feature importance
+        """
+        if self.feature_importance is None:
+            print("No feature importance available. Call fit() first.")
+            return pd.DataFrame()
+        
+        df = self.feature_importance.head(top_n).reset_index()
+        df.columns = ['Feature', 'Importance']
+        
+        # Check if in Jupyter
+        try:
+            from IPython import get_ipython
+            shell = get_ipython()
+            if shell and 'ZMQInteractiveShell' in shell.__class__.__name__:
+                from IPython.display import display
+                styled = df.style.bar(subset=['Importance'], color='steelblue')
+                display(styled)
+        except (ImportError, NameError):
+            pass
+        
+        return df
+    
+    def display_summary(self) -> pd.DataFrame:
+        """
+        Display feature selection summary as DataFrame (Jupyter-friendly).
+        
+        Returns:
+            DataFrame with selection summary
+        """
+        if not self.is_fitted:
+            print("FeatureSelector is not fitted")
+            return pd.DataFrame()
+        
+        summary_data = {
+            'Metric': ['Method', 'Total Features', 'Selected', 'Dropped'],
+            'Value': [
+                self.method,
+                len(self.selected_features) + len(self.dropped_features),
+                len(self.selected_features),
+                len(self.dropped_features)
+            ]
+        }
+        df = pd.DataFrame(summary_data)
+        
+        # Check if in Jupyter
+        try:
+            from IPython import get_ipython
+            shell = get_ipython()
+            if shell and 'ZMQInteractiveShell' in shell.__class__.__name__:
+                from IPython.display import display
+                display(df)
+        except (ImportError, NameError):
+            pass
+        
+        return df

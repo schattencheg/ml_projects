@@ -34,3 +34,4 @@ backtrader>=1.9.76
 
 # Optional: Hyperparameter optimization
 scikit-optimize>=0.9.0
+nbformat

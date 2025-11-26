@@ -1,5 +1,7 @@
 """
 ResultManager - Receives and processes results from TrainManager/TestManager/BacktestManager.
+
+Supports both script and Jupyter notebook usage with display methods.
 """
 
 import pandas as pd
@@ -8,6 +10,21 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 import json
 from datetime import datetime
+
+
+def _is_jupyter() -> bool:
+    """Detect if running in Jupyter notebook/lab environment."""
+    try:
+        from IPython import get_ipython
+        shell = get_ipython()
+        if shell is None:
+            return False
+        shell_name = shell.__class__.__name__
+        if 'ZMQInteractiveShell' in shell_name:
+            return True
+        return False
+    except (ImportError, NameError):
+        return False
 
 
 class ResultManager:
@@ -426,3 +443,87 @@ class ResultManager:
             print("  Sharpe Ratio: " + f'{sharpe:.4f}')
         
         print("="*70 + "\n")
+    
+    # =========================================================================
+    # JUPYTER-FRIENDLY DISPLAY METHODS
+    # =========================================================================
+    
+    def display_train_comparison(self) -> pd.DataFrame:
+        """
+        Display training comparison table (Jupyter-friendly).
+        
+        Returns:
+            DataFrame with training comparison (also displays in Jupyter)
+        """
+        df = self.compare_models('train')
+        if _is_jupyter() and not df.empty:
+            from IPython.display import display
+            display(df.style.highlight_max(axis=0, color='lightgreen'))
+        return df
+    
+    def display_test_comparison(self) -> pd.DataFrame:
+        """
+        Display test comparison table (Jupyter-friendly).
+        
+        Returns:
+            DataFrame with test comparison (also displays in Jupyter)
+        """
+        df = self.compare_models('test')
+        if _is_jupyter() and not df.empty:
+            from IPython.display import display
+            display(df.style.highlight_max(axis=0, color='lightgreen'))
+        return df
+    
+    def display_backtest_comparison(self) -> pd.DataFrame:
+        """
+        Display backtest comparison table (Jupyter-friendly).
+        
+        Returns:
+            DataFrame with backtest comparison (also displays in Jupyter)
+        """
+        df = self.compare_backtests()
+        if _is_jupyter() and not df.empty:
+            from IPython.display import display
+            # Highlight best values (max for returns/sharpe, min for drawdown)
+            styled = df.style
+            if 'total_return' in df.columns:
+                styled = styled.highlight_max(subset=['total_return'], color='lightgreen')
+            if 'sharpe_ratio' in df.columns:
+                styled = styled.highlight_max(subset=['sharpe_ratio'], color='lightgreen')
+            if 'max_drawdown' in df.columns:
+                styled = styled.highlight_min(subset=['max_drawdown'], color='lightgreen')
+            if 'win_rate' in df.columns:
+                styled = styled.highlight_max(subset=['win_rate'], color='lightgreen')
+            display(styled)
+        return df
+    
+    def display_summary(self) -> Dict[str, Any]:
+        """
+        Display results summary (Jupyter-friendly).
+        
+        Returns:
+            Summary dictionary (also displays formatted in Jupyter)
+        """
+        summary = self.generate_summary()
+        
+        if _is_jupyter():
+            from IPython.display import display, HTML
+            
+            html = "<div style='font-family: Arial; padding: 10px;'>"
+            html += "<h3>📊 Results Summary</h3>"
+            html += "<table style='border-collapse: collapse;'>"
+            
+            for key, value in summary.items():
+                if isinstance(value, float):
+                    value_str = f"{value:.4f}"
+                else:
+                    value_str = str(value)
+                html += f"<tr><td style='padding: 5px; font-weight: bold;'>{key}</td>"
+                html += f"<td style='padding: 5px;'>{value_str}</td></tr>"
+            
+            html += "</table></div>"
+            display(HTML(html))
+        else:
+            self.print_summary()
+        
+        return summary

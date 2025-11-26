@@ -47,7 +47,6 @@ models/
 
 # Jupyter Notebooks
 .ipynb_checkpoints/
-*.ipynb
 
 # Logs
 *.log

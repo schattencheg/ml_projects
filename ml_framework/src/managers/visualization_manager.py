@@ -21,11 +21,228 @@ class VisualizationManager:
     - Charts stacked vertically (not subplots)
     - Separate reports for train/test/backtest
     - Interactive plots using Plotly
+    - Jupyter notebook support with inline display
     """
     
-    def __init__(self):
-        """Initialize VisualizationManager."""
+    def __init__(self, jupyter_mode: Optional[bool] = None):
+        """
+        Initialize VisualizationManager.
+        
+        Args:
+            jupyter_mode: If True, optimize for Jupyter display. 
+                         If None, auto-detect environment.
+        """
         self.figures = []
+        self._jupyter_mode = jupyter_mode if jupyter_mode is not None else self._is_jupyter()
+    
+    @staticmethod
+    def _is_jupyter() -> bool:
+        """Detect if running in Jupyter notebook/lab environment."""
+        try:
+            from IPython import get_ipython
+            shell = get_ipython()
+            if shell is None:
+                return False
+            shell_name = shell.__class__.__name__
+            if 'ZMQInteractiveShell' in shell_name:  # Jupyter notebook/lab
+                return True
+            if 'TerminalInteractiveShell' in shell_name:  # IPython terminal
+                return False
+            return False
+        except (ImportError, NameError):
+            return False
+    
+    @property
+    def jupyter_mode(self) -> bool:
+        """Check if running in Jupyter mode."""
+        return self._jupyter_mode
+    
+    def display_figure(self, fig: go.Figure) -> None:
+        """
+        Display a figure inline (Jupyter) or show in browser.
+        
+        Args:
+            fig: Plotly figure to display
+        """
+        if self._jupyter_mode:
+            fig.show()
+        else:
+            fig.show()
+    
+    def display_figures(self, figures: List[go.Figure]) -> None:
+        """
+        Display multiple figures inline (Jupyter) or show in browser.
+        
+        Args:
+            figures: List of Plotly figures to display
+        """
+        for fig in figures:
+            self.display_figure(fig)
+    
+    # =========================================================================
+    # JUPYTER-FRIENDLY METHODS (return figures for inline display)
+    # =========================================================================
+    
+    def get_feature_importance_figures(self,
+                                        feature_importance: pd.Series,
+                                        selected_features: Optional[List[str]] = None,
+                                        dropped_features: Optional[List[str]] = None,
+                                        method: str = 'unknown',
+                                        correlation_matrix: Optional[pd.DataFrame] = None) -> List[go.Figure]:
+        """
+        Get feature importance figures for Jupyter display.
+        
+        Args:
+            feature_importance: Series with feature names as index and importance as values
+            selected_features: List of selected feature names
+            dropped_features: List of dropped feature names
+            method: Feature selection method used
+            correlation_matrix: Optional correlation matrix for heatmap
+            
+        Returns:
+            List of Plotly figures for inline display
+        """
+        figures = []
+        
+        # 1. Feature Importance Bar Chart (Top 30)
+        figures.append(self._create_feature_importance_bar(feature_importance, top_n=30))
+        
+        # 2. Feature Importance Horizontal Bar (All features)
+        figures.append(self._create_feature_importance_horizontal(feature_importance))
+        
+        # 3. Cumulative Importance Chart
+        figures.append(self._create_cumulative_importance(feature_importance))
+        
+        # 4. Selected vs Dropped Features Summary
+        if selected_features is not None and dropped_features is not None:
+            figures.append(self._create_feature_selection_summary(
+                feature_importance, selected_features, dropped_features, method
+            ))
+        
+        # 5. Correlation Heatmap (if provided)
+        if correlation_matrix is not None:
+            figures.append(self._create_correlation_heatmap(correlation_matrix))
+        
+        # 6. Feature Importance Distribution
+        figures.append(self._create_importance_distribution(feature_importance))
+        
+        return figures
+    
+    def get_backtest_figures(self,
+                             backtest_results: Dict[str, Any],
+                             df: Optional[pd.DataFrame] = None) -> List[go.Figure]:
+        """
+        Get backtest figures for Jupyter display.
+        
+        Args:
+            backtest_results: Backtest results dictionary
+            df: Optional DataFrame with OHLC data for trade visualization
+            
+        Returns:
+            List of Plotly figures for inline display
+        """
+        figures = []
+        
+        if not backtest_results:
+            return figures
+        
+        # 1. Backtest Metrics Comparison
+        figures.append(self._create_backtest_metrics_comparison(backtest_results))
+        
+        # 2. Equity Curves Comparison
+        figures.append(self.create_equity_curves_comparison(backtest_results))
+        
+        # 3. Individual Model Results
+        for model_name, results in backtest_results.items():
+            # Individual equity curve
+            if 'equity_curve' in results:
+                figures.append(self._create_equity_curve(model_name, results))
+            
+            # OHLC chart with trades
+            if df is not None and 'trades' in results and len(results['trades']) > 0:
+                figures.append(self.create_ohlc_with_trades(
+                    df=df,
+                    trades=results['trades'],
+                    model_name=model_name
+                ))
+            
+            # Returns distribution
+            if 'strategy_returns' in results:
+                figures.append(self._create_returns_distribution(model_name, results))
+        
+        return figures
+    
+    def get_model_comparison_figures(self, test_results: Dict[str, Any]) -> List[go.Figure]:
+        """
+        Get model comparison figures for Jupyter display.
+        
+        Args:
+            test_results: Test results dictionary with metrics per model
+            
+        Returns:
+            List of Plotly figures for inline display
+        """
+        figures = []
+        
+        if not test_results:
+            return figures
+        
+        # 1. Accuracy Comparison
+        figures.append(self._create_accuracy_comparison(test_results, 'test'))
+        
+        # 2. Metrics Comparison
+        figures.append(self._create_metrics_comparison(test_results))
+        
+        # 3. Individual confusion matrices
+        for model_name, results in test_results.items():
+            if 'confusion_matrix' in results:
+                figures.append(self._create_confusion_matrix(model_name, results['confusion_matrix']))
+        
+        return figures
+    
+    def show_feature_importance(self,
+                                 feature_importance: pd.Series,
+                                 selected_features: Optional[List[str]] = None,
+                                 dropped_features: Optional[List[str]] = None,
+                                 method: str = 'unknown',
+                                 correlation_matrix: Optional[pd.DataFrame] = None) -> None:
+        """
+        Display feature importance figures inline (Jupyter-friendly).
+        
+        Args:
+            feature_importance: Series with feature names as index and importance as values
+            selected_features: List of selected feature names
+            dropped_features: List of dropped feature names
+            method: Feature selection method used
+            correlation_matrix: Optional correlation matrix for heatmap
+        """
+        figures = self.get_feature_importance_figures(
+            feature_importance, selected_features, dropped_features, method, correlation_matrix
+        )
+        self.display_figures(figures)
+    
+    def show_backtest_results(self,
+                               backtest_results: Dict[str, Any],
+                               df: Optional[pd.DataFrame] = None) -> None:
+        """
+        Display backtest results inline (Jupyter-friendly).
+        
+        Args:
+            backtest_results: Backtest results dictionary
+            df: Optional DataFrame with OHLC data for trade visualization
+        """
+        figures = self.get_backtest_figures(backtest_results, df)
+        self.display_figures(figures)
+    
+    def show_model_comparison(self, test_results: Dict[str, Any]) -> None:
+        """
+        Display model comparison inline (Jupyter-friendly).
+        
+        Args:
+            test_results: Test results dictionary with metrics per model
+        """
+        figures = self.get_model_comparison_figures(test_results)
+        self.display_figures(figures)
         
     def create_train_report(self,
                            train_results: Dict[str, Any],
