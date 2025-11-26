@@ -366,9 +366,19 @@ class RunManager:
         return models
     
     def load_scaler(self, scaler_name: str = 'scaler'):
-        """Load saved scaler."""
+        """
+        Load saved scaler.
+        
+        Returns:
+            The sklearn scaler object (not the wrapper dict)
+        """
         scaler_path = self.scalers_dir / f"{scaler_name}.joblib"
-        return joblib.load(scaler_path)
+        scaler_data = joblib.load(scaler_path)
+        
+        # Handle both dict format and raw scaler
+        if isinstance(scaler_data, dict) and 'scaler' in scaler_data:
+            return scaler_data['scaler']
+        return scaler_data
     
     def load_datasets(self) -> Dict[str, pd.DataFrame]:
         """Load all saved datasets."""
