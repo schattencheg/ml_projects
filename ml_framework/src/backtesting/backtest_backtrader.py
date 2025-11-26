@@ -1,5 +1,10 @@
 """
 BacktestBacktrader - Backtesting using Backtrader library.
+
+Uses RiskManager (from base class) for:
+- Position sizing (default 2% of current capital)
+- Exit after exactly N bars
+- Cooldown: new positions only on the bar after previous closes
 """
 
 import pandas as pd
@@ -17,21 +22,32 @@ class BacktestBacktrader(BaseBacktest):
     - Realistic order execution
     - Built-in indicators
     - Live trading ready
+    - RiskManager controls position sizing and exit timing (inherited from BaseBacktest)
     """
     
     def __init__(self,
                  initial_capital: float = 10000.0,
                  commission: float = 0.001,
-                 position_size: float = 1.0):
+                 position_size: float = 0.02,
+                 bars_to_hold: int = 15,
+                 risk_manager=None):
         """
         Initialize Backtrader backtest.
         
         Args:
             initial_capital: Starting capital
             commission: Commission rate
-            position_size: Position size as fraction of capital
+            position_size: Position size as fraction of capital (default 0.02 = 2%)
+            bars_to_hold: Number of bars to hold position before exiting (default 15)
+            risk_manager: Optional custom RiskManager instance (passed to base class)
         """
-        super().__init__(initial_capital, commission, position_size)
+        super().__init__(
+            initial_capital=initial_capital,
+            commission=commission,
+            position_size=position_size,
+            bars_to_hold=bars_to_hold,
+            risk_manager=risk_manager
+        )
         
     def run(self,
             df: pd.DataFrame,
@@ -58,9 +74,21 @@ class BacktestBacktrader(BaseBacktest):
             import backtrader as bt
         except ImportError:
             print("❌ Backtrader not installed. Install with: pip install backtrader")
-            return {}
+            # Return empty results structure
+            self.trades = []
+            self.results = {
+                'equity_curve': pd.Series([self.initial_capital] * len(df), index=df.index),
+                'trades': [],
+                'final_capital': self.initial_capital
+            }
+            self.metrics = self.calculate_metrics()
+            return self.results
         
         print(f"\nRunning {self.__class__.__name__} backtest...")
+        print(f"  RiskManager: {self.risk_manager}")
+        
+        # Reset risk manager state
+        self.risk_manager.reset()
         
         # Prepare predictions
         X = df[feature_cols].values
@@ -70,12 +98,15 @@ class BacktestBacktrader(BaseBacktest):
         # Add predictions to dataframe
         df_bt = df.copy()
         df_bt['prediction'] = predictions
-        position_size = self.position_size
+        
+        # Pass RiskManager parameters to strategy
+        risk_manager = self.risk_manager
+        commission = self.commission
 
-        # Define Backtrader strategy
+        # Define Backtrader strategy with RiskManager
         class MLStrategy(bt.Strategy):
             params = (
-                ('position_size', position_size),
+                ('bars_to_hold', risk_manager.bars_to_hold),
             )
             
             def __init__(strategy_self):
@@ -85,8 +116,11 @@ class BacktestBacktrader(BaseBacktest):
                 strategy_self.entry_price = None
                 strategy_self.entry_size = None
                 strategy_self.equity_curve = []  # Track equity at each bar
+                strategy_self.last_exit_bar = None  # For cooldown
                 
             def next(strategy_self):
+                current_bar = len(strategy_self) - 1
+                
                 # Track equity at each bar
                 strategy_self.equity_curve.append(strategy_self.broker.getvalue())
                 
@@ -95,42 +129,58 @@ class BacktestBacktrader(BaseBacktest):
                 
                 prediction = strategy_self.data.prediction[0]
                 
+                # Check exit condition (fixed bars)
+                if strategy_self.position and strategy_self.entry_bar is not None:
+                    bars_held = current_bar - strategy_self.entry_bar
+                    if bars_held >= strategy_self.params.bars_to_hold:
+                        # Exit after N bars
+                        strategy_self.order = strategy_self.sell(size=strategy_self.position.size)
+                        return
+                
+                # Check entry condition
                 if not strategy_self.position:
                     if prediction == 1:
-                        # Buy signal
-                        size = int((strategy_self.broker.getcash() * strategy_self.params.position_size) / strategy_self.data.close[0])
-                        if size > 0:
-                            strategy_self.order = strategy_self.buy(size=size)
-                else:
-                    if prediction == 0:
-                        # Sell signal
-                        strategy_self.order = strategy_self.sell(size=strategy_self.position.size)
+                        # Check cooldown: can only open on bar AFTER last exit
+                        can_open = (strategy_self.last_exit_bar is None or 
+                                   current_bar > strategy_self.last_exit_bar)
+                        
+                        if can_open:
+                            # Position sizing: 2% of current capital
+                            current_capital = strategy_self.broker.getvalue()
+                            shares = risk_manager.get_position_size(
+                                capital=current_capital,
+                                price=strategy_self.data.close[0],
+                                commission=commission
+                            )
+                            # For high-priced assets like BTC, allow fractional shares
+                            # Backtrader supports fractional shares by default
+                            if shares > 0.0001:  # Minimum viable position
+                                strategy_self.order = strategy_self.buy(size=shares)
             
             def notify_order(strategy_self, order):
                 if order.status in [order.Completed]:
                     if order.isbuy():
                         # Store entry details
-                        strategy_self.entry_bar = len(strategy_self)
+                        strategy_self.entry_bar = len(strategy_self) - 1
                         strategy_self.entry_price = order.executed.price
                         strategy_self.entry_size = order.executed.size
                     elif order.issell():
-                        # Store exit details
-                        if strategy_self.entry_bar is not None:
-                            exit_bar = len(strategy_self)
-                            exit_price = order.executed.price
-                            # This will be updated in notify_trade with actual PnL
+                        # Update last exit bar for cooldown
+                        strategy_self.last_exit_bar = len(strategy_self) - 1
                 
                 strategy_self.order = None
             
             def notify_trade(strategy_self, trade):
                 if trade.isclosed:
                     # Get exit bar index (current bar)
-                    exit_bar = len(strategy_self)
+                    exit_bar = len(strategy_self) - 1
                     
                     # Calculate exit price from PnL
-                    # PnL = (exit_price - entry_price) * size
-                    # exit_price = entry_price + (PnL / size)
                     exit_price = strategy_self.entry_price + (trade.pnl / strategy_self.entry_size) if strategy_self.entry_size else 0
+                    
+                    # Determine exit reason
+                    bars_held = exit_bar - strategy_self.entry_bar if strategy_self.entry_bar else 0
+                    exit_reason = 'fixed_bars' if bars_held >= strategy_self.params.bars_to_hold else 'end_of_data'
                     
                     strategy_self.trades_list.append({
                         'entry_idx': strategy_self.entry_bar,
@@ -139,7 +189,7 @@ class BacktestBacktrader(BaseBacktest):
                         'exit_price': exit_price,
                         'shares': strategy_self.entry_size,
                         'pnl': trade.pnl,
-                        'exit_reason': 'signal'
+                        'exit_reason': exit_reason
                     })
                     
                     # Reset entry tracking
@@ -157,8 +207,8 @@ class BacktestBacktrader(BaseBacktest):
         # Initialize Cerebro
         cerebro = bt.Cerebro()
         
-        # Add strategy
-        cerebro.addstrategy(MLStrategy, position_size=self.position_size)
+        # Add strategy with bars_to_hold parameter
+        cerebro.addstrategy(MLStrategy, bars_to_hold=self.bars_to_hold)
         
         # Prepare data
         df_bt.index = pd.to_datetime(df_bt.index)

@@ -3,9 +3,14 @@ Fixed Bars Count Risk Manager
 
 This module provides a risk manager that exits positions after a fixed number of bars.
 No stop loss or take profit - positions are held for exactly N bars.
+
+Features:
+- Position sizing: Risk a fixed percentage of current capital per trade
+- Fixed holding period: Exit after exactly N bars
+- Cooldown: New positions can only open on the bar after previous position closes
 """
 
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 import pandas as pd
 from .base_risk_manager import BaseRiskManager
 
@@ -15,9 +20,11 @@ class FixedBarsCountRiskManager(BaseRiskManager):
     Risk manager that exits positions after a fixed number of bars.
     
     This strategy:
+    - Position sizing based on percentage of current capital (default 2%)
     - Holds positions for exactly N bars
     - No stop loss
     - No take profit
+    - New positions can only open on the bar after previous position closes
     - Exits only based on bar count or end of data
     
     Useful for:
@@ -26,12 +33,18 @@ class FixedBarsCountRiskManager(BaseRiskManager):
     - Eliminating stop loss/take profit optimization complexity
     """
     
-    def __init__(self, bars_to_hold: int = 5, name: str = "FixedBarsCount"):
+    def __init__(
+        self, 
+        bars_to_hold: int = 5, 
+        position_size_pct: float = 0.02,
+        name: str = "FixedBarsCount"
+    ):
         """
         Initialize the fixed bars count risk manager.
         
         Args:
             bars_to_hold: Number of bars to hold position before exiting
+            position_size_pct: Position size as percentage of current capital (default 0.02 = 2%)
             name: Name of the risk manager
         """
         super().__init__(name=name)
@@ -39,7 +52,12 @@ class FixedBarsCountRiskManager(BaseRiskManager):
         if bars_to_hold < 1:
             raise ValueError("bars_to_hold must be at least 1")
         
+        if not 0 < position_size_pct <= 1.0:
+            raise ValueError("position_size_pct must be between 0 and 1")
+        
         self.bars_to_hold = bars_to_hold
+        self.position_size_pct = position_size_pct
+        self.last_exit_bar: Optional[int] = None  # Track when last position closed
     
     def should_exit(
         self,
@@ -111,6 +129,69 @@ class FixedBarsCountRiskManager(BaseRiskManager):
         bars_remaining = max(0, self.bars_to_hold - bars_held)
         return bars_remaining
     
+    def can_open_position(self, current_bar: int) -> bool:
+        """
+        Check if a new position can be opened on the current bar.
+        
+        New positions can only be opened on the bar AFTER the previous position closes.
+        
+        Args:
+            current_bar: Current bar index
+            
+        Returns:
+            True if a new position can be opened, False otherwise
+        """
+        if self.last_exit_bar is None:
+            # No previous position, can open
+            return True
+        
+        # Can only open on the bar AFTER the last exit
+        return current_bar > self.last_exit_bar
+    
+    def get_position_size(
+        self,
+        capital: float,
+        price: float,
+        commission: float = 0.0
+    ) -> float:
+        """
+        Calculate position size based on current capital and position_size_pct.
+        
+        Position size = (capital * position_size_pct - commission) / price
+        
+        Args:
+            capital: Current available capital
+            price: Current price
+            commission: Commission rate (default 0.0)
+            
+        Returns:
+            Number of shares to trade
+        """
+        if price <= 0 or capital <= 0:
+            return 0.0
+        
+        position_value = capital * self.position_size_pct
+        commission_cost = position_value * commission
+        shares = (position_value - commission_cost) / price
+        
+        return max(0.0, shares)
+    
+    def on_exit(self, position_id: str, exit_bar: int) -> None:
+        """
+        Called when a position is exited. Updates last_exit_bar for cooldown.
+        
+        Args:
+            position_id: Unique identifier for the position
+            exit_bar: Bar index when position was exited
+        """
+        super().on_exit(position_id)
+        self.last_exit_bar = exit_bar
+    
+    def reset(self) -> None:
+        """Reset the risk manager state."""
+        super().reset()
+        self.last_exit_bar = None
+    
     def get_info(self) -> Dict[str, Any]:
         """
         Get information about the risk manager.
@@ -121,15 +202,22 @@ class FixedBarsCountRiskManager(BaseRiskManager):
         info = super().get_info()
         info.update({
             'bars_to_hold': self.bars_to_hold,
+            'position_size_pct': self.position_size_pct,
             'strategy': 'Fixed bars count exit',
             'stop_loss': 'None',
-            'take_profit': 'None'
+            'take_profit': 'None',
+            'cooldown': 'Next bar after exit'
         })
         return info
     
     def __repr__(self) -> str:
         """String representation of the risk manager."""
-        return f"{self.__class__.__name__}(bars_to_hold={self.bars_to_hold}, name='{self.name}')"
+        return (
+            f"{self.__class__.__name__}("
+            f"bars_to_hold={self.bars_to_hold}, "
+            f"position_size_pct={self.position_size_pct}, "
+            f"name='{self.name}')"
+        )
 
 
 # Example usage

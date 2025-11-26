@@ -55,7 +55,8 @@ def main():
     # Backtest configuration
     INITIAL_CAPITAL = 10000.0
     COMMISSION = 0.001
-    POSITION_SIZE = 1.0
+    POSITION_SIZE = 0.02  # 2% of capital per trade
+    BARS_TO_HOLD = FUTURE_BARS  # Exit after N bars (same as prediction horizon)
     
     print(f"\nConfiguration:")
     print(f"  Ticker: {TICKER}")
@@ -63,10 +64,13 @@ def main():
     print(f"  Target: Predict {THRESHOLD*100}% change in {FUTURE_BARS} bars")
     print(f"  Initial Capital: ${INITIAL_CAPITAL:,.2f}")
     print(f"  Commission: {COMMISSION*100}%")
+    print(f"  Position Size: {POSITION_SIZE*100}% of capital")
+    print(f"  Bars to Hold: {BARS_TO_HOLD}")
     
     # ========================================================================
     # STEP 1: Load Data
     # ========================================================================
+    #region 'Load Data'
     print("\n" + "="*80)
     print("[STEP 1] LOADING DATA")
     print("="*80)
@@ -81,10 +85,13 @@ def main():
     )
     
     print(f"\n✓ Data loaded: {len(df)} rows")
-    
+    #endregion
+
     # ========================================================================
     # STEP 2: Generate Features
     # ========================================================================
+    #region 'Generate Features'
+
     print("\n" + "="*80)
     print("[STEP 2] GENERATING FEATURES")
     print("="*80)
@@ -102,10 +109,12 @@ def main():
     
     print(f"\n✓ Features generated: {len(df_features.columns)} columns")
     print(f"✓ Dataset ready: {len(df_features)} rows")
+    #endregion
     
     # ========================================================================
     # STEP 3: Split Data
     # ========================================================================
+    #region 'Split Data'
     print("\n" + "="*80)
     print("[STEP 3] SPLITTING DATA")
     print("="*80)
@@ -126,10 +135,12 @@ def main():
     print(f"\n✓ Train: {len(train_df)} samples")
     print(f"✓ Val: {len(val_df)} samples")
     print(f"✓ Test: {len(test_df)} samples")
+    #endregion
     
     # ========================================================================
     # STEP 4: Train Model
     # ========================================================================
+    #region 'Train Model'
     print("\n" + "="*80)
     print("[STEP 4] TRAINING MODEL")
     print("="*80)
@@ -165,10 +176,12 @@ def main():
     print(f"\n✓ Model trained")
     print(f"  Accuracy: {accuracy:.4f}")
     print(f"  F1 Score: {f1:.4f}")
+    #endregion
     
     # ========================================================================
     # STEP 5: Run Backtests
     # ========================================================================
+    #region 'Run Backtests'
     print("\n" + "="*80)
     print("[STEP 5] RUNNING BACKTESTS - COMPARING ALL BACKENDS")
     print("="*80)
@@ -177,13 +190,17 @@ def main():
     test_df_bt = test_df.copy()
     
     # Initialize backtesting engines
+    # NoLib uses RiskManager for:
+    # - Position sizing (2% of current capital)
+    # - Exit after exactly N bars
+    # - No TP/SL
+    # - Cooldown: new positions only on bar after previous closes
     backtests = {
         'NoLib': BacktestNoLib(
             initial_capital=INITIAL_CAPITAL,
             commission=COMMISSION,
-            position_size=POSITION_SIZE,
-            stop_loss=0.05,  # 5% stop loss
-            take_profit=0.10  # 10% take profit
+            position_size=POSITION_SIZE,  # 2% of capital
+            bars_to_hold=BARS_TO_HOLD     # Exit after N bars
         ),
         'Backtrader': BacktestBacktrader(
             initial_capital=INITIAL_CAPITAL,
@@ -197,8 +214,10 @@ def main():
         )
     }
     
+    # Run backtests
+    results_manager = ResultManager()
     results_comparison = {}
-    
+
     for name, backtest in backtests.items():
         print(f"\n{'='*80}")
         print(f"Running {name} Backtest")
@@ -237,6 +256,33 @@ def main():
                 'success': True,
                 'backtest': backtest  # Store backtest object for visualization
             }
+
+            metrics = backtest.calculate_metrics()
+            
+            # Get equity curve and convert to list if it's a Series
+            equity_curve = results.get('equity_curve', [])
+            if isinstance(equity_curve, pd.Series):
+                equity_curve = equity_curve.tolist()
+            elif not isinstance(equity_curve, list):
+                equity_curve = list(equity_curve) if hasattr(equity_curve, '__iter__') else []
+            
+            # Add to results manager
+            results_manager.add_backtest_results(
+                model_name=name,
+                results={
+                    'status': 'success',
+                    'equity_curve': equity_curve,
+                    'trades': backtest.get_trades(),
+                    'metrics': metrics,
+                    'initial_capital': INITIAL_CAPITAL
+                }
+            )
+            
+            print(f"\n✓ {name} backtest complete")
+            print(f"  Total Return: {metrics.get('total_return', 0)*100:.2f}%")
+            print(f"  Sharpe Ratio: {metrics.get('sharpe_ratio', 0):.2f}")
+            print(f"  Total Trades: {metrics.get('total_trades', 0)}")
+
             
         except Exception as e:
             print(f"❌ Error running {name}: {e}")
@@ -247,10 +293,12 @@ def main():
                 'success': False,
                 'error': str(e)
             }
+    #endregion
     
     # ========================================================================
     # STEP 6: Compare Results
     # ========================================================================
+    #region 'Compare Results'
     print("\n" + "="*80)
     print("[STEP 6] BACKTEST COMPARISON SUMMARY")
     print("="*80)
@@ -282,10 +330,37 @@ def main():
             })
     
     print("\n" + comparison_df.to_string())
+    #endregion
     
     # ========================================================================
-    # STEP 7: Generate Comprehensive Visualizations
+    # STEP 7: Generate Visualizations
     # ========================================================================
+    #region 'Generate Visualizations'
+    if False:
+        print("\n" + "="*80)
+        print("[STEP 5] GENERATING VISUALIZATIONS")
+        print("="*80)
+        
+        viz_manager = VisualizationManager()
+        
+        # Prepare visualization data
+        viz_data = results_manager.prepare_backtest_visualization_data(test_df_bt)
+        
+        # Create comprehensive backtest report with OHLC and trades
+        report_path = viz_manager.create_backtest_report(
+            backtest_results=viz_data,
+            save_dir=Path('results'),
+            df=test_df_bt  # Pass OHLC data for trade visualization
+        )
+        
+        print(f"\n✓ Visualization report generated")
+        print(f"  Report path: {report_path}")
+    #endregion
+    
+    # ========================================================================
+    # STEP 8: Generate Comprehensive Visualizations
+    # ========================================================================
+    #region 'Generate Comprehensive Visualizations'
     print("\n" + "="*80)
     print("[STEP 7] GENERATING COMPREHENSIVE VISUALIZATIONS")
     print("="*80)
@@ -340,44 +415,13 @@ def main():
         print(f"    3. Performance metrics comparison")
         print(f"    4. Returns distributions")
         print(f"\n📊 Open the report to view: {report_path}")
+    #endregion
     
     # ========================================================================
-    # STEP 8: Recommendations
+    # STEP 9: Summary
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 8] RECOMMENDATIONS")
-    print("="*80)
+    #region 'Summary'
     
-    print("\n📊 Backend Comparison:")
-    print("\n1. BacktestNoLib (Custom):")
-    print("   ✓ Pros: Simple, transparent, easy to customize")
-    print("   ✓ Pros: No external dependencies")
-    print("   ✓ Pros: Includes stop loss and take profit")
-    print("   ✗ Cons: Manual implementation, slower")
-    
-    print("\n2. Backtrader:")
-    print("   ✓ Pros: Event-driven, realistic simulation")
-    print("   ✓ Pros: Live trading ready")
-    print("   ✓ Pros: Extensive features")
-    print("   ✗ Cons: Requires backtrader library")
-    print("   ✗ Cons: Steeper learning curve")
-    
-    print("\n3. Backtesting.py:")
-    print("   ✓ Pros: Fast vectorized backtesting")
-    print("   ✓ Pros: Built-in optimization")
-    print("   ✓ Pros: Interactive visualizations")
-    print("   ✗ Cons: Requires backtesting library")
-    print("   ✗ Cons: Less realistic than event-driven")
-    
-    print("\n💡 Use Case Recommendations:")
-    print("  • Quick prototyping: BacktestNoLib or BacktestingPy")
-    print("  • Parameter optimization: BacktestingPy")
-    print("  • Realistic simulation: Backtrader")
-    print("  • Production/Live trading: Backtrader")
-    
-    # ========================================================================
-    # SUMMARY
-    # ========================================================================
     print("\n" + "="*80)
     print("WORKFLOW COMPLETE - SUMMARY")
     print("="*80)
@@ -408,7 +452,7 @@ def main():
     print("\n" + "="*80)
     print("🎉 Backtest comparison completed successfully!")
     print("="*80 + "\n")
-    
+    #endregion
     return results_comparison
 
 

@@ -486,13 +486,21 @@ class VisualizationManager:
             col_map[col.lower()] = col
         
         if has_ohlc:
+            # Convert to Python lists to avoid Plotly binary encoding issues
+            # which cause candlesticks to not render in saved HTML
+            x_values = [str(x) for x in df.index]
+            open_values = df[col_map['open']].tolist()
+            high_values = df[col_map['high']].tolist()
+            low_values = df[col_map['low']].tolist()
+            close_values = df[col_map['close']].tolist()
+            
             # Add candlestick chart (use mapped column names)
             fig.add_trace(go.Candlestick(
-                x=df.index,
-                open=df[col_map['open']],
-                high=df[col_map['high']],
-                low=df[col_map['low']],
-                close=df[col_map['close']],
+                x=x_values,
+                open=open_values,
+                high=high_values,
+                low=low_values,
+                close=close_values,
                 name='OHLC',
                 increasing_line_color='green',
                 decreasing_line_color='red',
@@ -501,8 +509,8 @@ class VisualizationManager:
             
             # Also add close price line for clarity
             fig.add_trace(go.Scatter(
-                x=df.index,
-                y=df[col_map['close']],
+                x=x_values,
+                y=close_values,
                 mode='lines',
                 name='Close',
                 line=dict(color='blue', width=1),
@@ -521,9 +529,13 @@ class VisualizationManager:
             if close_col is None:
                 close_col = price_col
             
+            # Convert to Python lists to avoid binary encoding
+            x_values = [str(x) for x in df.index]
+            y_values = df[close_col].tolist()
+            
             fig.add_trace(go.Scatter(
-                x=df.index,
-                y=df[close_col],
+                x=x_values,
+                y=y_values,
                 mode='lines',
                 name='Close Price',
                 line=dict(color='blue', width=2)
@@ -588,19 +600,19 @@ class VisualizationManager:
                     
                     if is_long:
                         # LONG entry: RED ARROW UP
-                        long_entry_indices.append(df.index[entry_idx])
-                        long_entry_prices.append(entry_price)
+                        long_entry_indices.append(str(df.index[entry_idx]))
+                        long_entry_prices.append(float(entry_price))
                         long_entry_hover.append(hover_text)
                     else:
                         # SHORT entry: RED ARROW DOWN
-                        short_entry_indices.append(df.index[entry_idx])
-                        short_entry_prices.append(entry_price)
+                        short_entry_indices.append(str(df.index[entry_idx]))
+                        short_entry_prices.append(float(entry_price))
                         short_entry_hover.append(hover_text)
                 
                 # Exit markers (same color CROSS)
                 if exit_idx is not None and exit_idx < len(df):
-                    exit_indices.append(df.index[exit_idx])
-                    exit_prices.append(exit_price)
+                    exit_indices.append(str(df.index[exit_idx]))
+                    exit_prices.append(float(exit_price))
                     
                     pnl_color = 'green' if pnl > 0 else 'red'
                     exit_hover.append(
@@ -725,16 +737,14 @@ class VisualizationManager:
     <h1>{title}</h1>
 """
         
-        # Add each figure as a separate div
+        # Add each figure using Plotly's native to_html() which handles
+        # binary data encoding and all trace types correctly (including candlestick/OHLC)
         for i, fig in enumerate(figures):
-            html_content += f'    <div class="chart-container" id="chart{i}"></div>\n'
-        
-        # Add JavaScript to render figures
-        html_content += "    <script>\n"
-        for i, fig in enumerate(figures):
-            fig_json = fig.to_json()
-            html_content += f"        Plotly.newPlot('chart{i}', {fig_json});\n"
-        html_content += "    </script>\n"
+            html_content += '    <div class="chart-container">\n'
+            # Use to_html with full_html=False to get just the div+script for this figure
+            fig_html = fig.to_html(full_html=False, include_plotlyjs=False)
+            html_content += f'        {fig_html}\n'
+            html_content += '    </div>\n'
         
         html_content += """
 </body>

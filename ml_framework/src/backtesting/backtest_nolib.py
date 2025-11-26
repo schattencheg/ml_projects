@@ -1,5 +1,10 @@
 """
 BacktestNoLib - Custom backtesting implementation without external libraries.
+
+Uses RiskManager (from base class) for:
+- Position sizing (default 2% of current capital)
+- Exit after exactly N bars
+- Cooldown: new positions only on the bar after previous closes
 """
 
 import pandas as pd
@@ -17,27 +22,32 @@ class BacktestNoLib(BaseBacktest):
     - Easy to customize
     - No external dependencies
     - Buy/sell signals from ML model predictions
+    - RiskManager controls position sizing and exit timing (inherited from BaseBacktest)
     """
     
     def __init__(self,
                  initial_capital: float = 10000.0,
                  commission: float = 0.001,
-                 position_size: float = 1.0,
-                 stop_loss: Optional[float] = None,
-                 take_profit: Optional[float] = None):
+                 position_size: float = 0.02,
+                 bars_to_hold: int = 15,
+                 risk_manager=None):
         """
         Initialize NoLib backtest.
         
         Args:
             initial_capital: Starting capital
             commission: Commission rate
-            position_size: Position size as fraction of capital
-            stop_loss: Stop loss percentage (e.g., 0.02 = 2%)
-            take_profit: Take profit percentage (e.g., 0.05 = 5%)
+            position_size: Position size as fraction of capital (default 0.02 = 2%)
+            bars_to_hold: Number of bars to hold position before exiting (default 15)
+            risk_manager: Optional custom RiskManager instance (passed to base class)
         """
-        super().__init__(initial_capital, commission, position_size)
-        self.stop_loss = stop_loss
-        self.take_profit = take_profit
+        super().__init__(
+            initial_capital=initial_capital,
+            commission=commission,
+            position_size=position_size,
+            bars_to_hold=bars_to_hold,
+            risk_manager=risk_manager
+        )
         
     def run(self,
             df: pd.DataFrame,
@@ -47,7 +57,12 @@ class BacktestNoLib(BaseBacktest):
             price_col: str = 'close',
             **kwargs) -> Dict[str, Any]:
         """
-        Run backtest using custom logic.
+        Run backtest using custom logic with RiskManager.
+        
+        RiskManager controls:
+        - Position sizing (2% of current capital by default)
+        - Exit after exactly N bars
+        - Cooldown: new positions only on the bar after previous closes
         
         Args:
             df: DataFrame with OHLCV data and features
@@ -61,6 +76,10 @@ class BacktestNoLib(BaseBacktest):
             Dictionary with backtest results
         """
         print(f"\nRunning {self.__class__.__name__} backtest...")
+        print(f"  RiskManager: {self.risk_manager}")
+        
+        # Reset risk manager state
+        self.risk_manager.reset()
         
         # Prepare features
         X = df[feature_cols].values
@@ -73,20 +92,27 @@ class BacktestNoLib(BaseBacktest):
         capital = self.initial_capital
         position = 0  # Number of shares
         entry_price = 0
+        entry_idx = 0
         equity_curve = []
         trades = []
+        current_position = None  # Track current position for RiskManager
         
         # Simulate trading
         for i in range(len(df)):
             current_price = df[price_col].iloc[i]
             prediction = predictions[i]
             
-            # Check stop loss and take profit
-            if position > 0:
-                pnl_pct = (current_price - entry_price) / entry_price
+            # Check exit condition using RiskManager (only if we have a position)
+            if position > 0 and current_position is not None:
+                should_exit, exit_reason = self.risk_manager.should_exit(
+                    position=current_position,
+                    current_bar=i,
+                    current_price=current_price,
+                    df=df
+                )
                 
-                if self.stop_loss and pnl_pct <= -self.stop_loss:
-                    # Stop loss hit
+                if should_exit:
+                    # Exit position
                     sell_value = position * current_price
                     commission_cost = sell_value * self.commission
                     capital += sell_value - commission_cost
@@ -98,62 +124,52 @@ class BacktestNoLib(BaseBacktest):
                         'exit_price': current_price,
                         'shares': position,
                         'pnl': sell_value - (position * entry_price) - commission_cost,
-                        'exit_reason': 'stop_loss'
+                        'exit_reason': exit_reason
                     })
+                    
+                    # Notify RiskManager of exit
+                    self.risk_manager.on_exit(f"pos_{entry_idx}", i)
                     
                     position = 0
                     entry_price = 0
-                    
-                elif self.take_profit and pnl_pct >= self.take_profit:
-                    # Take profit hit
-                    sell_value = position * current_price
-                    commission_cost = sell_value * self.commission
-                    capital += sell_value - commission_cost
-                    
-                    trades.append({
-                        'entry_idx': entry_idx,
-                        'exit_idx': i,
-                        'entry_price': entry_price,
-                        'exit_price': current_price,
-                        'shares': position,
-                        'pnl': sell_value - (position * entry_price) - commission_cost,
-                        'exit_reason': 'take_profit'
-                    })
-                    
-                    position = 0
-                    entry_price = 0
+                    current_position = None
             
-            # Trading logic
-            if prediction == 1 and position == 0:
-                # Buy signal
-                buy_amount = capital * self.position_size
-                commission_cost = buy_amount * self.commission
-                shares = (buy_amount - commission_cost) / current_price
-                
-                if shares > 0:
-                    position = shares
-                    entry_price = current_price
-                    entry_idx = i
-                    capital -= buy_amount
+            # Check entry condition (only if no position AND RiskManager allows)
+            if position == 0 and prediction == 1:
+                # Check if RiskManager allows opening a new position
+                if self.risk_manager.can_open_position(i):
+                    # Get position size from RiskManager (2% of current capital)
+                    shares = self.risk_manager.get_position_size(
+                        capital=capital,
+                        price=current_price,
+                        commission=self.commission
+                    )
                     
-            elif prediction == 0 and position > 0:
-                # Sell signal
-                sell_value = position * current_price
-                commission_cost = sell_value * self.commission
-                capital += sell_value - commission_cost
-                
-                trades.append({
-                    'entry_idx': entry_idx,
-                    'exit_idx': i,
-                    'entry_price': entry_price,
-                    'exit_price': current_price,
-                    'shares': position,
-                    'pnl': sell_value - (position * entry_price) - commission_cost,
-                    'exit_reason': 'signal'
-                })
-                
-                position = 0
-                entry_price = 0
+                    if shares > 0:
+                        buy_amount = shares * current_price
+                        commission_cost = buy_amount * self.commission
+                        
+                        position = shares
+                        entry_price = current_price
+                        entry_idx = i
+                        capital -= (buy_amount + commission_cost)
+                        
+                        # Create position dict for RiskManager
+                        current_position = {
+                            'entry_bar': i,
+                            'entry_price': current_price,
+                            'shares': shares,
+                            'entry_idx': i
+                        }
+                        
+                        # Notify RiskManager of entry
+                        self.risk_manager.on_entry(
+                            position_id=f"pos_{i}",
+                            entry_bar=i,
+                            entry_price=current_price,
+                            shares=shares,
+                            entry_idx=i
+                        )
             
             # Calculate equity
             if position > 0:

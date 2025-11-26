@@ -1,12 +1,20 @@
 """
 BaseBacktest - Abstract base class for all backtesting implementations.
+
+Uses RiskManager for:
+- Position sizing (default 2% of current capital)
+- Exit after exactly N bars
+- Cooldown: new positions only on the bar after previous closes
 """
 
 from abc import ABC, abstractmethod
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, TYPE_CHECKING
 from pathlib import Path
+
+if TYPE_CHECKING:
+    from src.risk_management.fixed_bars_risk_manager import FixedBarsCountRiskManager
 
 
 class BaseBacktest(ABC):
@@ -15,23 +23,43 @@ class BaseBacktest(ABC):
     
     All backtest implementations must inherit from this class and implement
     the required abstract methods.
+    
+    RiskManager controls:
+    - Position sizing (% of current capital)
+    - Exit timing (after N bars)
+    - Cooldown between trades
     """
     
     def __init__(self,
                  initial_capital: float = 10000.0,
                  commission: float = 0.001,
-                 position_size: float = 1.0):
+                 position_size: float = 0.02,
+                 bars_to_hold: int = 15,
+                 risk_manager: Optional['FixedBarsCountRiskManager'] = None):
         """
         Initialize base backtest.
         
         Args:
             initial_capital: Starting capital
             commission: Commission rate (e.g., 0.001 = 0.1%)
-            position_size: Position size as fraction of capital (0.0 to 1.0)
+            position_size: Position size as fraction of capital (default 0.02 = 2%)
+            bars_to_hold: Number of bars to hold position before exiting (default 15)
+            risk_manager: Optional custom RiskManager. If None, creates FixedBarsCountRiskManager
         """
         self.initial_capital = initial_capital
         self.commission = commission
         self.position_size = position_size
+        self.bars_to_hold = bars_to_hold
+        
+        # Create or use provided RiskManager
+        if risk_manager is not None:
+            self.risk_manager = risk_manager
+        else:
+            from src.risk_management.fixed_bars_risk_manager import FixedBarsCountRiskManager
+            self.risk_manager = FixedBarsCountRiskManager(
+                bars_to_hold=bars_to_hold,
+                position_size_pct=position_size
+            )
         
         # Results storage
         self.results = None
@@ -205,8 +233,10 @@ class BaseBacktest(ABC):
             'parameters': {
                 'initial_capital': self.initial_capital,
                 'commission': self.commission,
-                'position_size': self.position_size
+                'position_size': self.position_size,
+                'bars_to_hold': self.bars_to_hold
             },
+            'risk_manager': self.risk_manager.get_info(),
             'metrics': self.metrics,
             'num_trades': len(self.trades)
         }

@@ -12,6 +12,9 @@ Author: ML Framework
 Date: 2024-11-25
 """
 
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 import sys
 from pathlib import Path
 import pandas as pd
@@ -136,19 +139,20 @@ def main():
     
     INITIAL_CAPITAL = 10000.0
     COMMISSION = 0.001
-    POSITION_SIZE = 1.0
+    POSITION_SIZE = 0.02  # 2% of capital per trade
+    BARS_TO_HOLD = 15     # Exit after N bars
     
     # Prepare test data
     test_df_bt = test_df.copy()
     
     # Initialize backtesting engines
+    # NoLib uses RiskManager for position sizing and exit timing
     backtests = {
         'NoLib': BacktestNoLib(
             initial_capital=INITIAL_CAPITAL,
             commission=COMMISSION,
-            position_size=POSITION_SIZE,
-            stop_loss=0.05,
-            take_profit=0.10
+            position_size=POSITION_SIZE,  # 2% of capital
+            bars_to_hold=BARS_TO_HOLD     # Exit after N bars
         ),
         'Backtrader': BacktestBacktrader(
             initial_capital=INITIAL_CAPITAL,
