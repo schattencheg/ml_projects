@@ -50,7 +50,7 @@ def main():
     INTERVAL = '1d'
     
     FUTURE_BARS = 15
-    THRESHOLD = 0.02
+    THRESHOLD = 0.05
     
     # Backtest configuration
     INITIAL_CAPITAL = 10000.0

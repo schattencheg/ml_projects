@@ -90,7 +90,8 @@ class BacktestNoLib(BaseBacktest):
         
         # Initialize tracking variables
         capital = self.initial_capital
-        position = 0  # Number of shares
+        position = 0  # Number of shares (positive=long, negative=short)
+        position_type = None  # 'long' or 'short'
         entry_price = 0
         entry_idx = 0
         equity_curve = []
@@ -103,7 +104,7 @@ class BacktestNoLib(BaseBacktest):
             prediction = predictions[i]
             
             # Check exit condition using RiskManager (only if we have a position)
-            if position > 0 and current_position is not None:
+            if position != 0 and current_position is not None:
                 should_exit, exit_reason = self.risk_manager.should_exit(
                     position=current_position,
                     current_bar=i,
@@ -112,18 +113,24 @@ class BacktestNoLib(BaseBacktest):
                 )
                 
                 if should_exit:
-                    # Exit position
-                    sell_value = position * current_price
-                    commission_cost = sell_value * self.commission
-                    capital += sell_value - commission_cost
+                    # Calculate P&L based on position type
+                    shares = abs(position)
+                    if position_type == 'long':
+                        pnl = (current_price - entry_price) * shares
+                        capital += shares * current_price * (1 - self.commission)
+                    else:  # short
+                        pnl = (entry_price - current_price) * shares
+                        # Close short: buy back shares, return margin
+                        capital += (entry_price - current_price) * shares - shares * current_price * self.commission
                     
                     trades.append({
                         'entry_idx': entry_idx,
                         'exit_idx': i,
                         'entry_price': entry_price,
                         'exit_price': current_price,
-                        'shares': position,
-                        'pnl': sell_value - (position * entry_price) - commission_cost,
+                        'shares': shares,
+                        'position_type': position_type,
+                        'pnl': pnl,
                         'exit_reason': exit_reason
                     })
                     
@@ -131,11 +138,13 @@ class BacktestNoLib(BaseBacktest):
                     self.risk_manager.on_exit(f"pos_{entry_idx}", i)
                     
                     position = 0
+                    position_type = None
                     entry_price = 0
                     current_position = None
             
             # Check entry condition (only if no position AND RiskManager allows)
-            if position == 0 and prediction == 1:
+            # prediction: +1 = long, -1 = short, 0 = no trade
+            if position == 0 and prediction != 0:
                 # Check if RiskManager allows opening a new position
                 if self.risk_manager.can_open_position(i):
                     # Get position size from RiskManager (2% of current capital)
@@ -146,20 +155,30 @@ class BacktestNoLib(BaseBacktest):
                     )
                     
                     if shares > 0:
-                        buy_amount = shares * current_price
-                        commission_cost = buy_amount * self.commission
-                        
-                        position = shares
                         entry_price = current_price
                         entry_idx = i
-                        capital -= (buy_amount + commission_cost)
+                        
+                        if prediction == 1:  # Long
+                            position_type = 'long'
+                            position = shares
+                            buy_amount = shares * current_price
+                            commission_cost = buy_amount * self.commission
+                            capital -= (buy_amount + commission_cost)
+                        else:  # prediction == -1, Short
+                            position_type = 'short'
+                            position = -shares
+                            # Short: sell borrowed shares, receive cash minus commission
+                            sell_amount = shares * current_price
+                            commission_cost = sell_amount * self.commission
+                            capital -= commission_cost  # Only pay commission, margin held
                         
                         # Create position dict for RiskManager
                         current_position = {
                             'entry_bar': i,
                             'entry_price': current_price,
                             'shares': shares,
-                            'entry_idx': i
+                            'entry_idx': i,
+                            'position_type': position_type
                         }
                         
                         # Notify RiskManager of entry
@@ -172,27 +191,36 @@ class BacktestNoLib(BaseBacktest):
                         )
             
             # Calculate equity
-            if position > 0:
+            if position > 0:  # Long
                 equity = capital + (position * current_price)
+            elif position < 0:  # Short
+                # Unrealized P&L for short = (entry_price - current_price) * shares
+                equity = capital + (entry_price - current_price) * abs(position)
             else:
                 equity = capital
             
             equity_curve.append(equity)
         
         # Close any open position at the end
-        if position > 0:
+        if position != 0:
             final_price = df[price_col].iloc[-1]
-            sell_value = position * final_price
-            commission_cost = sell_value * self.commission
-            capital += sell_value - commission_cost
+            shares = abs(position)
+            
+            if position_type == 'long':
+                pnl = (final_price - entry_price) * shares
+                capital += shares * final_price * (1 - self.commission)
+            else:  # short
+                pnl = (entry_price - final_price) * shares
+                capital += (entry_price - final_price) * shares - shares * final_price * self.commission
             
             trades.append({
                 'entry_idx': entry_idx,
                 'exit_idx': len(df) - 1,
                 'entry_price': entry_price,
                 'exit_price': final_price,
-                'shares': position,
-                'pnl': sell_value - (position * entry_price) - commission_cost,
+                'shares': shares,
+                'position_type': position_type,
+                'pnl': pnl,
                 'exit_reason': 'end_of_data'
             })
             

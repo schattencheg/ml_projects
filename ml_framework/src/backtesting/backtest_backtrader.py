@@ -115,6 +115,7 @@ class BacktestBacktrader(BaseBacktest):
                 strategy_self.entry_bar = None
                 strategy_self.entry_price = None
                 strategy_self.entry_size = None
+                strategy_self.position_type = None  # 'long' or 'short'
                 strategy_self.equity_curve = []  # Track equity at each bar
                 strategy_self.last_exit_bar = None  # For cooldown
                 
@@ -133,39 +134,42 @@ class BacktestBacktrader(BaseBacktest):
                 if strategy_self.position and strategy_self.entry_bar is not None:
                     bars_held = current_bar - strategy_self.entry_bar
                     if bars_held >= strategy_self.params.bars_to_hold:
-                        # Exit after N bars
-                        strategy_self.order = strategy_self.sell(size=strategy_self.position.size)
+                        # Exit after N bars - close position
+                        strategy_self.order = strategy_self.close()
                         return
                 
-                # Check entry condition
-                if not strategy_self.position:
-                    if prediction == 1:
-                        # Check cooldown: can only open on bar AFTER last exit
-                        can_open = (strategy_self.last_exit_bar is None or 
-                                   current_bar > strategy_self.last_exit_bar)
-                        
-                        if can_open:
-                            # Position sizing: 2% of current capital
-                            current_capital = strategy_self.broker.getvalue()
-                            shares = risk_manager.get_position_size(
-                                capital=current_capital,
-                                price=strategy_self.data.close[0],
-                                commission=commission
-                            )
-                            # For high-priced assets like BTC, allow fractional shares
-                            # Backtrader supports fractional shares by default
-                            if shares > 0.0001:  # Minimum viable position
+                # Check entry condition: +1 = long, -1 = short, 0 = no trade
+                if not strategy_self.position and prediction != 0:
+                    # Check cooldown: can only open on bar AFTER last exit
+                    can_open = (strategy_self.last_exit_bar is None or 
+                               current_bar > strategy_self.last_exit_bar)
+                    
+                    if can_open:
+                        # Position sizing: 2% of current capital
+                        current_capital = strategy_self.broker.getvalue()
+                        shares = risk_manager.get_position_size(
+                            capital=current_capital,
+                            price=strategy_self.data.close[0],
+                            commission=commission
+                        )
+                        # For high-priced assets like BTC, allow fractional shares
+                        if shares > 0.0001:  # Minimum viable position
+                            if prediction == 1:  # Long
+                                strategy_self.position_type = 'long'
                                 strategy_self.order = strategy_self.buy(size=shares)
+                            else:  # prediction == -1, Short
+                                strategy_self.position_type = 'short'
+                                strategy_self.order = strategy_self.sell(size=shares)
             
             def notify_order(strategy_self, order):
                 if order.status in [order.Completed]:
-                    if order.isbuy():
-                        # Store entry details
+                    # Entry: when we have no position and order completes
+                    if strategy_self.entry_bar is None:
                         strategy_self.entry_bar = len(strategy_self) - 1
                         strategy_self.entry_price = order.executed.price
                         strategy_self.entry_size = order.executed.size
-                    elif order.issell():
-                        # Update last exit bar for cooldown
+                    else:
+                        # Exit: update last exit bar for cooldown
                         strategy_self.last_exit_bar = len(strategy_self) - 1
                 
                 strategy_self.order = None
@@ -176,7 +180,10 @@ class BacktestBacktrader(BaseBacktest):
                     exit_bar = len(strategy_self) - 1
                     
                     # Calculate exit price from PnL
-                    exit_price = strategy_self.entry_price + (trade.pnl / strategy_self.entry_size) if strategy_self.entry_size else 0
+                    if strategy_self.position_type == 'long':
+                        exit_price = strategy_self.entry_price + (trade.pnl / strategy_self.entry_size) if strategy_self.entry_size else 0
+                    else:  # short
+                        exit_price = strategy_self.entry_price - (trade.pnl / strategy_self.entry_size) if strategy_self.entry_size else 0
                     
                     # Determine exit reason
                     bars_held = exit_bar - strategy_self.entry_bar if strategy_self.entry_bar else 0
@@ -188,6 +195,7 @@ class BacktestBacktrader(BaseBacktest):
                         'entry_price': strategy_self.entry_price,
                         'exit_price': exit_price,
                         'shares': strategy_self.entry_size,
+                        'position_type': strategy_self.position_type,
                         'pnl': trade.pnl,
                         'exit_reason': exit_reason
                     })
@@ -196,6 +204,7 @@ class BacktestBacktrader(BaseBacktest):
                     strategy_self.entry_bar = None
                     strategy_self.entry_price = None
                     strategy_self.entry_size = None
+                    strategy_self.position_type = None
         
         # Create Backtrader data feed
         class PandasData(bt.feeds.PandasData):

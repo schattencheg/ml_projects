@@ -115,6 +115,7 @@ class BacktestBacktestingPy(BaseBacktest):
                 # Reset state for each run (instance variables, not class variables)
                 self._entry_bar = None
                 self._last_exit_bar = None
+                self._position_type = None  # 'long' or 'short'
             
             def next(self):
                 current_bar = len(self.data) - 1
@@ -127,20 +128,25 @@ class BacktestBacktestingPy(BaseBacktest):
                         # Exit after N bars
                         self._last_exit_bar = current_bar
                         self._entry_bar = None  # Reset entry bar
+                        self._position_type = None
                         self.position.close()
                         return
                 
-                # Check entry condition
-                if prediction == 1 and not self.position:
+                # Check entry condition: +1 = long, -1 = short, 0 = no trade
+                if prediction != 0 and not self.position:
                     # Check cooldown: can only open on bar AFTER last exit
                     can_open = (self._last_exit_bar is None or 
                                current_bar > self._last_exit_bar)
                     
                     if can_open:
                         # Position sizing: use position_size_pct of equity
-                        # backtesting.py size parameter is fraction of equity
                         self._entry_bar = current_bar
-                        self.buy(size=position_size_pct)
+                        if prediction == 1:  # Long
+                            self._position_type = 'long'
+                            self.buy(size=position_size_pct)
+                        else:  # prediction == -1, Short
+                            self._position_type = 'short'
+                            self.sell(size=position_size_pct)
         
         # Run backtest with FractionalBacktest for high-priced assets like BTC
         # FractionalBacktest allows trading fractional units

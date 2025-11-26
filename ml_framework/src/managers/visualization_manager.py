@@ -586,33 +586,42 @@ class VisualizationManager:
                 pnl = trade.get('pnl', 0)
                 exit_reason = trade.get('exit_reason', 'signal')
                 shares = trade.get('shares', 0)
+                position_type = trade.get('position_type', 'long')
                 
-                # Determine if LONG or SHORT based on shares sign
-                is_long = shares > 0
+                # Determine if LONG or SHORT - check position_type first, fallback to shares sign
+                is_long = position_type == 'long' if position_type else shares > 0
                 
-                # Entry markers
-                if entry_idx is not None and entry_idx < len(df):
+                # Entry markers - use DataFrame close price for Y to align with candles
+                if entry_idx is not None and 0 <= entry_idx < len(df):
+                    # Use close price from DataFrame for marker position (aligns with candles)
+                    close_col = col_map.get('close', 'close')
+                    chart_entry_price = float(df[close_col].iloc[entry_idx])
+                    
                     hover_text = (
                         f"<b>Trade #{i+1} - {'LONG' if is_long else 'SHORT'} ENTRY</b><br>"
-                        f"Price: ${entry_price:.2f}<br>"
-                        f"Shares: {abs(shares):.2f}"
+                        f"Executed: ${entry_price:.2f}<br>"
+                        f"Close: ${chart_entry_price:.2f}<br>"
+                        f"Shares: {abs(shares):.4f}"
                     )
                     
                     if is_long:
                         # LONG entry: RED ARROW UP
                         long_entry_indices.append(str(df.index[entry_idx]))
-                        long_entry_prices.append(float(entry_price))
+                        long_entry_prices.append(chart_entry_price)
                         long_entry_hover.append(hover_text)
                     else:
                         # SHORT entry: RED ARROW DOWN
                         short_entry_indices.append(str(df.index[entry_idx]))
-                        short_entry_prices.append(float(entry_price))
+                        short_entry_prices.append(chart_entry_price)
                         short_entry_hover.append(hover_text)
                 
-                # Exit markers (same color CROSS)
-                if exit_idx is not None and exit_idx < len(df):
+                # Exit markers - use DataFrame close price for Y to align with candles
+                if exit_idx is not None and 0 <= exit_idx < len(df):
+                    close_col = col_map.get('close', 'close')
+                    chart_exit_price = float(df[close_col].iloc[exit_idx])
+                    
                     exit_indices.append(str(df.index[exit_idx]))
-                    exit_prices.append(float(exit_price))
+                    exit_prices.append(chart_exit_price)
                     
                     pnl_color = 'green' if pnl > 0 else 'red'
                     exit_hover.append(
