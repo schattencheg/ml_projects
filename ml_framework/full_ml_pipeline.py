@@ -122,7 +122,8 @@ def main():
     print("="*80)
     
     features_gen = FeaturesGenerator()
-    df_features = features_gen.generate_features(df, feature_set='advanced')
+    #df_features = features_gen.generate_features(df, feature_set='advanced')
+    df_features = features_gen.generate_features(df, feature_set='all')
     df_features = features_gen.create_target(
         df_features,
         target_type='classification',
