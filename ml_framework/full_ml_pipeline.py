@@ -351,6 +351,10 @@ def main():
             model.fit(X_train_scaled, y_train)
             training_time = time.time() - start_time
             
+            # Training accuracy
+            y_train_pred = model.predict(X_train_scaled)
+            train_accuracy = accuracy_score(y_train, y_train_pred)
+            
             # Validation accuracy
             y_val_pred = model.predict(X_val_scaled)
             val_accuracy = accuracy_score(y_val, y_val_pred)
@@ -359,11 +363,13 @@ def main():
             training_results[name] = {
                 'status': 'success',
                 'training_time': training_time,
+                'train_accuracy': train_accuracy,
                 'val_accuracy': val_accuracy,
                 'val_f1': val_f1
             }
             
             print(f"  ✓ Training complete in {training_time:.2f}s")
+            print(f"  Training Accuracy:   {train_accuracy:.4f}")
             print(f"  Validation Accuracy: {val_accuracy:.4f}")
             print(f"  Validation F1:       {val_f1:.4f}")
             
@@ -615,6 +621,26 @@ def main():
     
     results_manager = ResultManager()
     
+    # Add training results
+    for name, result in training_results.items():
+        if result['status'] == 'success':
+            results_manager.train_results[name] = {
+                'status': 'success',
+                'train_accuracy': result.get('train_accuracy', 0),  # Will add this
+                'val_accuracy': result.get('val_accuracy', 0),
+                'training_time': result.get('training_time', 0)
+            }
+    
+    # Add test results
+    for name, result in test_results.items():
+        results_manager.test_results[name] = {
+            'status': 'success',
+            'accuracy': result.get('accuracy', 0),
+            'precision': result.get('precision', 0),
+            'recall': result.get('recall', 0),
+            'f1_score': result.get('f1_score', 0)
+        }
+    
     # Add all backtest results
     for name, result in backtest_results.items():
         if result['success']:
@@ -644,6 +670,7 @@ def main():
         save_dir=run_dir,
         df=backtest_df,
         test_results=results_manager.test_results,
+        train_results=results_manager.train_results,
         show=True
     )
     

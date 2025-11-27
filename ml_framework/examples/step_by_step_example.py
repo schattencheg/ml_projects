@@ -116,7 +116,12 @@ def main():
     viz_manager = VisualizationManager()
     viz_manager.create_train_report(result_manager.train_results, run_dir)
     viz_manager.create_test_report(result_manager.test_results, run_dir)
-    viz_manager.create_backtest_report(result_manager.backtest_results, run_dir, test_results=result_manager.test_results)
+    viz_manager.create_backtest_report(
+        result_manager.backtest_results, 
+        run_dir, 
+        test_results=result_manager.test_results,
+        train_results=result_manager.train_results
+    )
     
     # Print summary
     result_manager.print_summary()

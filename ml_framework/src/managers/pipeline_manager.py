@@ -310,10 +310,23 @@ class PipelineManager:
         
         # Create backtest report
         if self.result_manager.backtest_results:
+            # Prepare feature info if available
+            feature_info = None
+            if hasattr(self, 'feature_selector') and self.feature_selector:
+                feature_info = {
+                    'total_features': len(self.feature_selector.all_features) if hasattr(self.feature_selector, 'all_features') else 0,
+                    'selected_features': len(self.feature_selector.selected_features) if hasattr(self.feature_selector, 'selected_features') else 0,
+                    'dropped_features': len(self.feature_selector.dropped_features) if hasattr(self.feature_selector, 'dropped_features') else 0,
+                    'selection_method': self.feature_selector.method if hasattr(self.feature_selector, 'method') else 'Unknown',
+                    'top_features': self.feature_selector.selected_features[:10] if hasattr(self.feature_selector, 'selected_features') else []
+                }
+            
             self.visualization_manager.create_backtest_report(
                 self.result_manager.backtest_results,
                 self.run_dir,
-                test_results=self.result_manager.test_results
+                test_results=self.result_manager.test_results,
+                train_results=self.result_manager.train_results,
+                feature_info=feature_info
             )
         
         return self

@@ -457,7 +457,8 @@ def main():
         backtest_results=viz_data,
         save_dir=Path('results'),
         df=test_df_bt,  # Pass OHLC data for trade visualization
-        test_results=results_manager.test_results  # Include test metrics in report
+        test_results=results_manager.test_results,  # Include test metrics in report
+        train_results=None  # No train results in this example
     )
     
     if report_path:
