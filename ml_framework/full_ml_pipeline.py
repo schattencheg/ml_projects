@@ -184,7 +184,7 @@ def main():
     print("[STEP 4] INITIALIZING RUN MANAGER")
     print("="*80)
     
-    run_manager = RunManager(base_dir='models')
+    run_manager = RunManager(base_dir='results')
     run_manager.initialize()
     run_dir = run_manager.get_run_dir()
     
@@ -254,80 +254,88 @@ def main():
     print(f"  Train std:  {X_train_scaled.std():.6f}")
     #endregion
     
-    #region Step 7: Create All Models
+    #region Step 7: Create All Models Using ModelManager
     # ========================================================================
-    # STEP 7: CREATE ALL MODELS
+    # STEP 7: CREATE ALL MODELS USING MODELMANAGER
     # ========================================================================
     print("\n" + "="*80)
-    print("[STEP 7] CREATING ALL MODELS")
+    print("[STEP 7] CREATING ALL MODELS USING MODELMANAGER")
     print("="*80)
     
+    # Initialize ModelManager
+    model_manager = ModelManager(results_dir='results', use_gpu=False)
+    
+    # Enable desired models
+    model_manager.enable_model('logistic_regression', True)
+    model_manager.enable_model('random_forest', True)
+    model_manager.enable_model('xgboost', True)
+    model_manager.enable_model('catboost', True)
+    
+    # Print configuration
+    model_manager.print_config()
+    
+    # Create all enabled models
     models = {}
     
     # 1. Logistic Regression
     print("\n  Creating Logistic Regression...")
-    models['LogisticRegression'] = LogisticRegressionModel(
-        name='LogisticRegression',
-        max_iter=1000,
-        random_state=42
-    )
+    try:
+        models['LogisticRegression'] = model_manager.create_model('logistic_regression')
+    except Exception as e:
+        print(f"    ⚠ LogisticRegression not available: {e}")
     
     # 2. Random Forest
     print("  Creating Random Forest...")
-    models['RandomForest'] = RandomForestModel(
-        name='RandomForest',
-        n_estimators=100,
-        max_depth=10,
-        random_state=42,
-        n_jobs=-1
-    )
+    try:
+        models['RandomForest'] = model_manager.create_model('random_forest', n_jobs=-1)
+    except Exception as e:
+        print(f"    ⚠ RandomForest not available: {e}")
     
     # 3. XGBoost
     print("  Creating XGBoost...")
     try:
-        models['XGBoost'] = XGBoostModel(
-            name='XGBoost',
-            n_estimators=100,
-            max_depth=6,
-            learning_rate=0.1,
-            random_state=42,
-            use_gpu=False
-        )
+        models['XGBoost'] = model_manager.create_model('xgboost')
     except Exception as e:
         print(f"    ⚠ XGBoost not available: {e}")
     
     # 4. CatBoost
     print("  Creating CatBoost...")
     try:
-        models['CatBoost'] = CatBoostModel(
-            name='CatBoost',
-            iterations=100,
-            depth=6,
-            learning_rate=0.1,
-            random_state=42,
-            verbose=False
-        )
+        models['CatBoost'] = model_manager.create_model('catboost')
     except Exception as e:
         print(f"    ⚠ CatBoost not available: {e}")
     
-    # 5. Simple CNN (if TensorFlow available)
-    print("  Creating SimpleCNN...")
+    # 5. SimpleCNN using predefined architecture
+    print("  Creating SimpleCNN (predefined: simple_cnn_small)...")
     try:
-        from src.models_lib import SimpleCNN
-        models['SimpleCNN'] = SimpleCNN(
+        models['SimpleCNN'] = model_manager.create_from_predefined(
+            architecture_name='simple_cnn_small',
             name='SimpleCNN',
             input_shape=(len(feature_cols), 1),
             num_classes=NUM_CLASSES,
-            filters=[32, 64],
-            kernel_size=3,
-            dense_units=[64],
-            dropout_rate=0.3,
             learning_rate=0.001
         )
     except Exception as e:
         print(f"    ⚠ SimpleCNN not available: {e}")
     
+    # Optional: Add more predefined architectures
+    # Uncomment to add LSTM or other architectures
+    # print("  Creating LSTM (predefined: lstm_small)...")
+    # try:
+    #     models['LSTM_Small'] = model_manager.create_from_predefined(
+    #         architecture_name='lstm_small',
+    #         name='LSTM_Small',
+    #         input_shape=(len(feature_cols), 1),
+    #         num_classes=NUM_CLASSES,
+    #         learning_rate=0.001
+    #     )
+    # except Exception as e:
+    #     print(f"    ⚠ LSTM_Small not available: {e}")
+    
     print(f"\n✓ Created {len(models)} models: {list(models.keys())}")
+    print(f"\nAvailable predefined architectures:")
+    for arch_name in model_manager.get_predefined_architectures():
+        print(f"  - {arch_name}")
     #endregion
     
     #region Step 8: Train All Models
