@@ -312,7 +312,8 @@ class PipelineManager:
         if self.result_manager.backtest_results:
             self.visualization_manager.create_backtest_report(
                 self.result_manager.backtest_results,
-                self.run_dir
+                self.run_dir,
+                test_results=self.result_manager.test_results
             )
         
         return self

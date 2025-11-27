@@ -130,6 +130,21 @@ def main():
     print(f"  Accuracy: {accuracy:.4f}")
     print(f"  F1 Score: {f1:.4f}")
     
+    # Store test results for visualization
+    from sklearn.metrics import precision_score, recall_score
+    precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
+    recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
+    
+    results_manager.add_test_results({
+        'RandomForest': {
+            'status': 'success',
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1
+        }
+    })
+    
     # ========================================================================
     # STEP 4: Run Backtests
     # ========================================================================
@@ -232,7 +247,8 @@ def main():
     report_path = viz_manager.create_backtest_report(
         backtest_results=viz_data,
         save_dir=Path('results'),
-        df=test_df_bt  # Pass OHLC data for trade visualization
+        df=test_df_bt,  # Pass OHLC data for trade visualization
+        test_results=results_manager.test_results  # Include test metrics in report
     )
     
     print(f"\n✓ Visualization report generated")

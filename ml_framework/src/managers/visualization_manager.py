@@ -616,6 +616,7 @@ class VisualizationManager:
                               backtest_results: Dict[str, Any],
                               save_dir: Path,
                               df: Optional[pd.DataFrame] = None,
+                              test_results: Optional[Dict[str, Any]] = None,
                               show: bool = True) -> str:
         """
         Create HTML report for backtest results.
@@ -624,6 +625,7 @@ class VisualizationManager:
             backtest_results: Backtest results dictionary
             save_dir: Directory to save report
             df: Optional DataFrame with OHLC data for trade visualization
+            test_results: Optional test results dictionary with model metrics
             show: If True, automatically open the report in browser (default: True)
             
         Returns:
@@ -642,22 +644,17 @@ class VisualizationManager:
             print("No backtest results to visualize")
             return ""
         
-        # 1. Performance Metrics Comparison
-        fig = self._create_backtest_metrics_comparison(backtest_results)
+        # 1. Comprehensive Summary Table (NEW - replaces bar chart)
+        fig = self._create_backtest_summary_table(backtest_results, test_results)
         figures.append(fig)
         
-        # 2. Equity Curves Comparison (NEW - All curves on one chart)
+        # 2. Equity Curves Comparison (All curves on one chart)
         fig = self.create_equity_curves_comparison(backtest_results)
         figures.append(fig)
         
         # 3. Individual Model Results
         for model_name, results in backtest_results.items():
-            # Individual equity curve
-            if 'equity_curve' in results:
-                fig = self._create_equity_curve(model_name, results)
-                figures.append(fig)
-            
-            # OHLC chart with trades (NEW)
+            # OHLC chart with trades
             if df is not None and 'trades' in results and len(results['trades']) > 0:
                 fig = self.create_ohlc_with_trades(
                     df=df,
@@ -803,6 +800,132 @@ class VisualizationManager:
             yaxis_title='Value',
             barmode='group',
             height=500
+        )
+        
+        return fig
+    
+    def _create_backtest_summary_table(self, 
+                                       backtest_results: Dict[str, Any],
+                                       test_results: Optional[Dict[str, Any]] = None) -> go.Figure:
+        """
+        Create comprehensive summary table with test metrics and backtest metrics.
+        
+        Args:
+            backtest_results: Backtest results dictionary
+            test_results: Optional test results dictionary with model metrics
+            
+        Returns:
+            Plotly figure with table
+        """
+        models = list(backtest_results.keys())
+        
+        # Prepare table data
+        headers = ['Model']
+        
+        # Add test metrics columns if available
+        if test_results:
+            headers.extend(['Accuracy', 'Precision', 'Recall', 'F1 Score'])
+        
+        # Add backtest metrics columns
+        headers.extend(['Trades', 'Final PnL ($)', 'Total Return (%)', 
+                       'Sharpe Ratio', 'Max Drawdown (%)', 'Win Rate (%)'])
+        
+        # Build table rows
+        table_data = []
+        
+        for model_name in models:
+            row = [model_name]
+            
+            # Add test metrics if available
+            if test_results and model_name in test_results:
+                test_res = test_results[model_name]
+                if test_res.get('status') == 'success':
+                    row.append(f"{test_res.get('accuracy', 0):.4f}")
+                    row.append(f"{test_res.get('precision', 0):.4f}")
+                    row.append(f"{test_res.get('recall', 0):.4f}")
+                    row.append(f"{test_res.get('f1_score', 0):.4f}")
+                else:
+                    row.extend(['N/A', 'N/A', 'N/A', 'N/A'])
+            elif test_results:
+                row.extend(['N/A', 'N/A', 'N/A', 'N/A'])
+            
+            # Add backtest metrics
+            bt_res = backtest_results[model_name]
+            
+            # Get metrics (could be in 'metrics' dict or at top level)
+            metrics = bt_res.get('metrics', bt_res)
+            
+            # Trades count
+            trades_count = len(bt_res.get('trades', []))
+            row.append(str(trades_count))
+            
+            # Final PnL
+            initial_capital = bt_res.get('initial_capital', 10000)
+            final_capital = metrics.get('final_capital', initial_capital)
+            final_pnl = final_capital - initial_capital
+            row.append(f"{final_pnl:,.2f}")
+            
+            # Total Return (%)
+            total_return = metrics.get('total_return', 0) * 100
+            row.append(f"{total_return:.2f}")
+            
+            # Sharpe Ratio
+            sharpe = metrics.get('sharpe_ratio', 0)
+            row.append(f"{sharpe:.3f}")
+            
+            # Max Drawdown (%)
+            max_dd = metrics.get('max_drawdown', 0) * 100
+            row.append(f"{max_dd:.2f}")
+            
+            # Win Rate (%)
+            win_rate = metrics.get('win_rate', 0) * 100
+            row.append(f"{win_rate:.2f}")
+            
+            table_data.append(row)
+        
+        # Transpose data for Plotly table (columns as lists)
+        table_values = [[row[i] for row in table_data] for i in range(len(headers))]
+        
+        # Create color scheme for cells
+        # Header colors
+        header_colors = ['#2c3e50']  # Model column
+        if test_results:
+            header_colors.extend(['#3498db'] * 4)  # Test metrics in blue
+        header_colors.extend(['#27ae60'] * 6)  # Backtest metrics in green
+        
+        # Cell colors (alternating rows)
+        cell_colors = []
+        for col_idx in range(len(headers)):
+            if col_idx == 0:  # Model names
+                colors = ['#ecf0f1' if i % 2 == 0 else '#ffffff' for i in range(len(models))]
+            elif test_results and 1 <= col_idx <= 4:  # Test metrics
+                colors = ['#ebf5fb' if i % 2 == 0 else '#ffffff' for i in range(len(models))]
+            else:  # Backtest metrics
+                colors = ['#eafaf1' if i % 2 == 0 else '#ffffff' for i in range(len(models))]
+            cell_colors.append(colors)
+        
+        # Create table figure
+        fig = go.Figure(data=[go.Table(
+            header=dict(
+                values=[f'<b>{h}</b>' for h in headers],
+                fill_color=header_colors,
+                align='center',
+                font=dict(color='white', size=12, family='Arial'),
+                height=35
+            ),
+            cells=dict(
+                values=table_values,
+                fill_color=cell_colors,
+                align=['left'] + ['center'] * (len(headers) - 1),
+                font=dict(color='#2c3e50', size=11, family='Arial'),
+                height=30
+            )
+        )])
+        
+        fig.update_layout(
+            title='<b>Models Performance Summary</b>',
+            height=max(200, 100 + len(models) * 35),
+            margin=dict(l=20, r=20, t=60, b=20)
         )
         
         return fig

@@ -456,7 +456,8 @@ def main():
     report_path = viz_manager.create_backtest_report(
         backtest_results=viz_data,
         save_dir=Path('results'),
-        df=test_df_bt  # Pass OHLC data for trade visualization
+        df=test_df_bt,  # Pass OHLC data for trade visualization
+        test_results=results_manager.test_results  # Include test metrics in report
     )
     
     if report_path:

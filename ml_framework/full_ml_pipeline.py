@@ -67,7 +67,7 @@ def main():
     
     # Target configuration
     FUTURE_BARS = 15
-    THRESHOLD = 0.05
+    THRESHOLD = 0.1
     NUM_CLASSES = 3  # -1 (down), 0 (neutral), +1 (up)
     
     # Backtest configuration
@@ -533,14 +533,15 @@ def main():
     
     # Run backtests for each model
     backtest_results = {}
-    
+    backtester = BacktestNoLib
+
     for model_name, model in loaded_models.items():
         print(f"\n{'='*60}")
         print(f"Backtesting {model_name}...")
         print(f"{'='*60}")
         
         try:
-            backtest = BacktestNoLib(
+            backtest = backtester(
                 initial_capital=INITIAL_CAPITAL,
                 commission=COMMISSION,
                 position_size=POSITION_SIZE,
@@ -642,6 +643,7 @@ def main():
         backtest_results=viz_data,
         save_dir=run_dir,
         df=backtest_df,
+        test_results=results_manager.test_results,
         show=True
     )
     
