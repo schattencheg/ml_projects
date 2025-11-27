@@ -99,3 +99,7 @@ ml_cnn/examples/
 *.html
 
 ml_cnn/models/
+
+ml_framework/catboost_info/
+
+ml_framework/results/

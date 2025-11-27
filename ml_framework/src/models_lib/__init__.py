@@ -7,6 +7,7 @@ from src.models_lib.xgboost_model import XGBoostModel
 from src.models_lib.catboost_model import CatBoostModel
 from src.models_lib.linear_model import LinearRegressionModel, LogisticRegressionModel, RandomForestModel
 from src.models_lib.cnn_models import BaseCNN, SimpleCNN, DeepCNN, ResidualCNN
+from src.models_lib.keras_wrappers import LSTMModelWrapper, HybridModelWrapper
 
 __all__ = [
     'BaseModel',
@@ -18,5 +19,7 @@ __all__ = [
     'BaseCNN',
     'SimpleCNN',
     'DeepCNN',
-    'ResidualCNN'
+    'ResidualCNN',
+    'LSTMModelWrapper',
+    'HybridModelWrapper'
 ]

@@ -265,11 +265,12 @@ def main():
     # Initialize ModelManager
     model_manager = ModelManager(results_dir='results', use_gpu=False)
     
-    # Enable desired models
+    # Enable ALL available models
     model_manager.enable_model('logistic_regression', True)
     model_manager.enable_model('random_forest', True)
     model_manager.enable_model('xgboost', True)
     model_manager.enable_model('catboost', True)
+    model_manager.enable_model('linear_regression', True)
     
     # Print configuration
     model_manager.print_config()
@@ -277,63 +278,168 @@ def main():
     # Create all enabled models
     models = {}
     
+    print("\n" + "="*70)
+    print("CREATING TRADITIONAL ML MODELS")
+    print("="*70)
+    
     # 1. Logistic Regression
-    print("\n  Creating Logistic Regression...")
+    print("\n  1. Creating Logistic Regression...")
     try:
         models['LogisticRegression'] = model_manager.create_model('logistic_regression')
+        print("     ✓ Success")
     except Exception as e:
-        print(f"    ⚠ LogisticRegression not available: {e}")
+        print(f"     ✗ Failed: {e}")
     
-    # 2. Random Forest
-    print("  Creating Random Forest...")
+    # 2. Linear Regression
+    print("  2. Creating Linear Regression...")
+    try:
+        models['LinearRegression'] = model_manager.create_model('linear_regression')
+        print("     ✓ Success")
+    except Exception as e:
+        print(f"     ✗ Failed: {e}")
+    
+    # 3. Random Forest
+    print("  3. Creating Random Forest...")
     try:
         models['RandomForest'] = model_manager.create_model('random_forest', n_jobs=-1)
+        print("     ✓ Success")
     except Exception as e:
-        print(f"    ⚠ RandomForest not available: {e}")
+        print(f"     ✗ Failed: {e}")
     
-    # 3. XGBoost
-    print("  Creating XGBoost...")
+    # 4. XGBoost
+    print("  4. Creating XGBoost...")
     try:
         models['XGBoost'] = model_manager.create_model('xgboost')
+        print("     ✓ Success")
     except Exception as e:
-        print(f"    ⚠ XGBoost not available: {e}")
+        print(f"     ✗ Failed: {e}")
     
-    # 4. CatBoost
-    print("  Creating CatBoost...")
+    # 5. CatBoost
+    print("  5. Creating CatBoost...")
     try:
         models['CatBoost'] = model_manager.create_model('catboost')
+        print("     ✓ Success")
     except Exception as e:
-        print(f"    ⚠ CatBoost not available: {e}")
+        print(f"     ✗ Failed: {e}")
     
-    # 5. SimpleCNN using predefined architecture
-    print("  Creating SimpleCNN (predefined: simple_cnn_small)...")
+    print("\n" + "="*70)
+    print("CREATING CNN MODELS (3 ARCHITECTURES)")
+    print("="*70)
+    
+    # 6. CNN Small
+    print("\n  6. Creating CNN_Small (predefined: simple_cnn_small)...")
     try:
-        models['SimpleCNN'] = model_manager.create_from_predefined(
+        models['CNN_Small'] = model_manager.create_from_predefined(
             architecture_name='simple_cnn_small',
-            name='SimpleCNN',
+            name='CNN_Small',
             input_shape=(len(feature_cols), 1),
             num_classes=NUM_CLASSES,
             learning_rate=0.001
         )
+        print("     ✓ Success - 2 conv layers [32, 64], 1 dense [64]")
     except Exception as e:
-        print(f"    ⚠ SimpleCNN not available: {e}")
+        print(f"     ✗ Failed: {e}")
     
-    # Optional: Add more predefined architectures
-    # Uncomment to add LSTM or other architectures
-    # print("  Creating LSTM (predefined: lstm_small)...")
-    # try:
-    #     models['LSTM_Small'] = model_manager.create_from_predefined(
-    #         architecture_name='lstm_small',
-    #         name='LSTM_Small',
-    #         input_shape=(len(feature_cols), 1),
-    #         num_classes=NUM_CLASSES,
-    #         learning_rate=0.001
-    #     )
-    # except Exception as e:
-    #     print(f"    ⚠ LSTM_Small not available: {e}")
+    # 7. CNN Medium
+    print("  7. Creating CNN_Medium (predefined: simple_cnn_medium)...")
+    try:
+        models['CNN_Medium'] = model_manager.create_from_predefined(
+            architecture_name='simple_cnn_medium',
+            name='CNN_Medium',
+            input_shape=(len(feature_cols), 1),
+            num_classes=NUM_CLASSES,
+            learning_rate=0.001
+        )
+        print("     ✓ Success - 3 conv layers [64, 128, 256], 2 dense [128, 64]")
+    except Exception as e:
+        print(f"     ✗ Failed: {e}")
     
-    print(f"\n✓ Created {len(models)} models: {list(models.keys())}")
-    print(f"\nAvailable predefined architectures:")
+    # 8. CNN Large
+    print("  8. Creating CNN_Large (predefined: simple_cnn_large)...")
+    try:
+        models['CNN_Large'] = model_manager.create_from_predefined(
+            architecture_name='simple_cnn_large',
+            name='CNN_Large',
+            input_shape=(len(feature_cols), 1),
+            num_classes=NUM_CLASSES,
+            learning_rate=0.0005  # Lower LR for larger model
+        )
+        print("     ✓ Success - 4 conv layers [128, 256, 512, 512], 2 dense [256, 128]")
+    except Exception as e:
+        print(f"     ✗ Failed: {e}")
+    
+    print("\n" + "="*70)
+    print("CREATING LSTM MODELS (3 ARCHITECTURES)")
+    print("="*70)
+    
+    # 9. LSTM Small
+    print("\n  9. Creating LSTM_Small (predefined: lstm_small)...")
+    try:
+        models['LSTM_Small'] = model_manager.create_from_predefined(
+            architecture_name='lstm_small',
+            name='LSTM_Small',
+            input_shape=(len(feature_cols), 1),
+            num_classes=NUM_CLASSES,
+            learning_rate=0.001
+        )
+        print("     ✓ Success - 1 LSTM layer [64], 1 dense [32]")
+    except Exception as e:
+        print(f"     ✗ Failed: {e}")
+    
+    # 10. LSTM Medium
+    print("  10. Creating LSTM_Medium (predefined: lstm_medium)...")
+    try:
+        models['LSTM_Medium'] = model_manager.create_from_predefined(
+            architecture_name='lstm_medium',
+            name='LSTM_Medium',
+            input_shape=(len(feature_cols), 1),
+            num_classes=NUM_CLASSES,
+            learning_rate=0.001
+        )
+        print("     ✓ Success - 2 LSTM layers [128, 64], 2 dense [64, 32]")
+    except Exception as e:
+        print(f"     ✗ Failed: {e}")
+    
+    # 11. LSTM Large
+    print("  11. Creating LSTM_Large (predefined: lstm_large)...")
+    try:
+        models['LSTM_Large'] = model_manager.create_from_predefined(
+            architecture_name='lstm_large',
+            name='LSTM_Large',
+            input_shape=(len(feature_cols), 1),
+            num_classes=NUM_CLASSES,
+            learning_rate=0.0005  # Lower LR for larger model
+        )
+        print("     ✓ Success - 3 LSTM layers [256, 128, 64], 2 dense [128, 64]")
+    except Exception as e:
+        print(f"     ✗ Failed: {e}")
+    
+    print("\n" + "="*70)
+    print("CREATING HYBRID MODEL")
+    print("="*70)
+    
+    # 12. Hybrid CNN-LSTM
+    print("\n  12. Creating Hybrid_CNN_LSTM (predefined: hybrid_cnn_lstm)...")
+    try:
+        models['Hybrid_CNN_LSTM'] = model_manager.create_from_predefined(
+            architecture_name='hybrid_cnn_lstm',
+            name='Hybrid_CNN_LSTM',
+            input_shape=(len(feature_cols), 1),
+            num_classes=NUM_CLASSES,
+            learning_rate=0.001
+        )
+        print("     ✓ Success - 2 conv [64, 128] + 1 LSTM [64], 2 dense [64, 32]")
+    except Exception as e:
+        print(f"     ✗ Failed: {e}")
+    
+    print("\n" + "="*70)
+    print(f"SUMMARY: Created {len(models)} models successfully")
+    print("="*70)
+    print(f"\nModels created:")
+    for i, name in enumerate(models.keys(), 1):
+        print(f"  {i:2d}. {name}")
+    
+    print(f"\n\nAll available predefined architectures:")
     for arch_name in model_manager.get_predefined_architectures():
         print(f"  - {arch_name}")
     #endregion
@@ -367,19 +473,25 @@ def main():
             y_val_pred = model.predict(X_val_scaled)
             val_accuracy = accuracy_score(y_val, y_val_pred)
             val_f1 = f1_score(y_val, y_val_pred, average='weighted')
+            val_precision = precision_score(y_val, y_val_pred, average='weighted')
+            val_recall = recall_score(y_val, y_val_pred, average='weighted')
             
             training_results[name] = {
                 'status': 'success',
                 'training_time': training_time,
                 'train_accuracy': train_accuracy,
                 'val_accuracy': val_accuracy,
-                'val_f1': val_f1
+                'val_f1': val_f1,
+                'val_precision': val_precision,
+                'val_recall': val_recall
             }
             
             print(f"  ✓ Training complete in {training_time:.2f}s")
             print(f"  Training Accuracy:   {train_accuracy:.4f}")
             print(f"  Validation Accuracy: {val_accuracy:.4f}")
             print(f"  Validation F1:       {val_f1:.4f}")
+            print(f"  Validation Precision: {val_precision:.4f}")
+            print(f"  Validation Recall:    {val_recall:.4f}")
             
         except Exception as e:
             training_results[name] = {

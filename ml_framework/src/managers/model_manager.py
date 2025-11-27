@@ -13,7 +13,8 @@ import numpy as np
 from src.models_lib import (
     BaseModel, XGBoostModel, CatBoostModel, 
     LinearRegressionModel, LogisticRegressionModel, RandomForestModel,
-    SimpleCNN, DeepCNN, ResidualCNN
+    SimpleCNN, DeepCNN, ResidualCNN,
+    LSTMModelWrapper, HybridModelWrapper
 )
 
 try:
@@ -464,23 +465,8 @@ class ModelManager:
             metrics=['accuracy']
         )
         
-        # Wrap in BaseModel
-        class LSTMModel(BaseModel):
-            def __init__(self, keras_model, model_name):
-                super().__init__(name=model_name)
-                self.model = keras_model
-            
-            def fit(self, X, y, **kwargs):
-                y = self._convert_target(y)
-                return self.model.fit(X, y, **kwargs)
-            
-            def predict(self, X):
-                return self.model.predict(X).argmax(axis=1)
-            
-            def predict_proba(self, X):
-                return self.model.predict(X)
-        
-        return LSTMModel(model, name)
+        # Wrap in BaseModel using module-level wrapper
+        return LSTMModelWrapper(model, name)
     
     def create_from_predefined(self,
                                architecture_name: str,
@@ -569,23 +555,8 @@ class ModelManager:
                 metrics=['accuracy']
             )
             
-            # Wrap in BaseModel
-            class HybridModel(BaseModel):
-                def __init__(self, keras_model, model_name):
-                    super().__init__(name=model_name)
-                    self.model = keras_model
-                
-                def fit(self, X, y, **kwargs):
-                    y = self._convert_target(y)
-                    return self.model.fit(X, y, **kwargs)
-                
-                def predict(self, X):
-                    return self.model.predict(X).argmax(axis=1)
-                
-                def predict_proba(self, X):
-                    return self.model.predict(X)
-            
-            return HybridModel(model, name)
+            # Wrap in BaseModel using module-level wrapper
+            return HybridModelWrapper(model, name)
         else:
             raise ValueError(f"Unknown architecture type: {arch_type}")
     
