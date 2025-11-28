@@ -22,12 +22,18 @@ class BacktestManager:
     - Position sizing and commission modeling
     - Performance metrics calculation
     - Results storage
+    
+    Example:
+        >>> bt_mgr = BacktestManager(backend='nolib', verbose=False)
+        >>> results = bt_mgr.run(data, model, scaler_manager, feature_cols)
+        >>> equity = bt_mgr.get_equity_curve()
     """
     
     def __init__(self, 
                  backend: Literal['nolib', 'backtrader', 'backtesting'] = 'nolib',
                  initial_capital: float = 10000,
-                 commission: float = 0.001):
+                 commission: float = 0.001,
+                 verbose: bool = True):
         """
         Initialize BacktestManager.
         
@@ -35,11 +41,13 @@ class BacktestManager:
             backend: Backtesting backend to use
             initial_capital: Initial capital for backtesting
             commission: Commission rate (e.g., 0.001 = 0.1%)
+            verbose: If True, print status messages (default: True)
         """
         self.backend = backend
         self.initial_capital = initial_capital
         self.commission = commission
         self.results = {}
+        self.verbose = verbose
         
     def run(self,
            data: pd.DataFrame,
@@ -83,9 +91,10 @@ class BacktestManager:
         
         This is a simple vectorized backtest implementation.
         """
-        print("\n" + "="*70)
-        print("RUNNING BACKTEST (NoLib Backend)")
-        print("="*70)
+        if self.verbose:
+            print("\n" + "="*70)
+            print("RUNNING BACKTEST (NoLib Backend)")
+            print("="*70)
         
         # Prepare features
         if feature_cols is None:
@@ -177,7 +186,8 @@ class BacktestManager:
         }
         
         self.results = results
-        self._print_results(results)
+        if self.verbose:
+            self._print_results(results)
         
         return results
     
@@ -196,11 +206,12 @@ class BacktestManager:
         except ImportError:
             raise ImportError("Backtrader is not installed. Install with: pip install backtrader")
         
-        print("\n" + "="*70)
-        print("RUNNING BACKTEST (Backtrader Backend)")
-        print("="*70)
-        print("Note: Backtrader integration is a placeholder. Full implementation needed.")
-        print("="*70 + "\n")
+        if self.verbose:
+            print("\n" + "="*70)
+            print("RUNNING BACKTEST (Backtrader Backend)")
+            print("="*70)
+            print("Note: Backtrader integration is a placeholder. Full implementation needed.")
+            print("="*70 + "\n")
         
         # Placeholder - full implementation would create a Backtrader strategy
         warnings.warn("Backtrader backend not fully implemented. Using NoLib instead.")
@@ -221,11 +232,12 @@ class BacktestManager:
         except ImportError:
             raise ImportError("Backtesting.py is not installed. Install with: pip install backtesting")
         
-        print("\n" + "="*70)
-        print("RUNNING BACKTEST (Backtesting.py Backend)")
-        print("="*70)
-        print("Note: Backtesting.py integration is a placeholder. Full implementation needed.")
-        print("="*70 + "\n")
+        if self.verbose:
+            print("\n" + "="*70)
+            print("RUNNING BACKTEST (Backtesting.py Backend)")
+            print("="*70)
+            print("Note: Backtesting.py integration is a placeholder. Full implementation needed.")
+            print("="*70 + "\n")
         
         # Placeholder - full implementation would create a Backtesting.py strategy
         warnings.warn("Backtesting.py backend not fully implemented. Using NoLib instead.")

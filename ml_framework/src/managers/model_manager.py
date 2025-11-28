@@ -33,19 +33,31 @@ class ModelManager:
     - All models inherit from BaseModel with automatic target conversion
     - Save/load models with timestamps
     - Model versioning and metadata tracking
+    
+    Example:
+        >>> model_manager = ModelManager(verbose=False)
+        >>> model_manager.add_model('logistic_regression')
+        >>> model_manager.add_model('xgboost', n_estimators=200)
+        >>> model_manager.add_model('random_forest')
+        >>> models = model_manager.get_models()  # Returns dict of model instances
     """
     
-    def __init__(self, results_dir: str = 'results', use_gpu: bool = False):
+    def __init__(self, results_dir: str = 'results', use_gpu: bool = False, verbose: bool = True):
         """
         Initialize ModelManager.
         
         Args:
             results_dir: Base directory for results (models will be in timestamped subdirs)
             use_gpu: Whether to enable GPU acceleration for supported models
+            verbose: If True, print status messages (default: True)
         """
         self.results_dir = Path(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
         self.use_gpu = use_gpu
+        self.verbose = verbose
+        
+        # Store created model instances
+        self._models: Dict[str, BaseModel] = {}
         
         # Model configuration
         self.model_config = {
@@ -149,9 +161,80 @@ class ModelManager:
             }
         }
     
+    def add_model(self, model_name: str, custom_name: Optional[str] = None, **override_params) -> 'ModelManager':
+        """
+        Add a model to the manager. Creates the model instance and stores it.
+        
+        Args:
+            model_name: Name of the model type to create (e.g., 'xgboost', 'random_forest')
+            custom_name: Optional custom name for the model (default: use model_name)
+            **override_params: Parameters to override default config
+            
+        Returns:
+            Self for method chaining
+            
+        Example:
+            >>> mgr = ModelManager()
+            >>> mgr.add_model('xgboost').add_model('random_forest')  # Chaining
+            >>> mgr.add_model('xgboost', custom_name='XGB_v2', n_estimators=200)
+        """
+        if model_name not in self.model_config:
+            raise ValueError(f"Unknown model: {model_name}. Available: {list(self.model_config.keys())}")
+        
+        # Use custom name or default to model_name
+        name = custom_name or model_name
+        
+        try:
+            model = self._create_model_instance(model_name, name, **override_params)
+            self._models[name] = model
+            if self.verbose:
+                print(f"  ✓ Added model: {name}")
+        except Exception as e:
+            if self.verbose:
+                print(f"  ✗ Failed to add {name}: {e}")
+            raise
+        
+        return self
+    
+    def _create_model_instance(self, model_name: str, name: str, **override_params) -> BaseModel:
+        """
+        Internal method to create a model instance.
+        
+        Args:
+            model_name: Name of the model type
+            name: Name to assign to the model instance
+            **override_params: Parameters to override default config
+            
+        Returns:
+            Model instance (inherits from BaseModel)
+        """
+        config = self.model_config[model_name].copy()
+        params = config.get('params', {}).copy()
+        params.update(override_params)
+        
+        # Create model based on type
+        if model_name == 'logistic_regression':
+            return LogisticRegressionModel(name=name, **params)
+        elif model_name == 'random_forest':
+            return RandomForestModel(name=name, **params)
+        elif model_name == 'xgboost':
+            return XGBoostModel(name=name, use_gpu=self.use_gpu, **params)
+        elif model_name == 'catboost':
+            return CatBoostModel(name=name, use_gpu=self.use_gpu, **params)
+        elif model_name == 'linear_regression':
+            return LinearRegressionModel(name=name, **params)
+        elif model_name == 'simple_cnn':
+            return SimpleCNN(name=name, use_gpu=self.use_gpu, **params)
+        elif model_name == 'deep_cnn':
+            return DeepCNN(name=name, use_gpu=self.use_gpu, **params)
+        elif model_name == 'residual_cnn':
+            return ResidualCNN(name=name, use_gpu=self.use_gpu, **params)
+        else:
+            raise ValueError(f"Model creation not implemented for: {model_name}")
+    
     def create_model(self, model_name: str, **override_params) -> BaseModel:
         """
-        Create a model instance.
+        Create a model instance without storing it (legacy method).
         
         Args:
             model_name: Name of the model to create
@@ -160,36 +243,71 @@ class ModelManager:
         Returns:
             Model instance (inherits from BaseModel)
         """
-        if model_name not in self.model_config:
-            raise ValueError(f"Unknown model: {model_name}. Available: {list(self.model_config.keys())}")
+        return self._create_model_instance(model_name, model_name, **override_params)
+    
+    def get_models(self) -> Dict[str, BaseModel]:
+        """
+        Get all added model instances.
         
-        config = self.model_config[model_name].copy()
-        params = config.get('params', {}).copy()
-        params.update(override_params)
+        Returns:
+            Dictionary of model instances {name: model}
+            
+        Example:
+            >>> mgr = ModelManager()
+            >>> mgr.add_model('xgboost').add_model('random_forest')
+            >>> models = mgr.get_models()
+            >>> for name, model in models.items():
+            ...     model.fit(X_train, y_train)
+        """
+        if self.verbose and self._models:
+            print(f"✓ Retrieved {len(self._models)} models: {list(self._models.keys())}")
+        return self._models.copy()
+    
+    def get_model(self, name: str) -> BaseModel:
+        """
+        Get a specific model by name.
         
-        # Create model based on type
-        if model_name == 'logistic_regression':
-            return LogisticRegressionModel(name=model_name, **params)
-        elif model_name == 'random_forest':
-            return RandomForestModel(name=model_name, **params)
-        elif model_name == 'xgboost':
-            return XGBoostModel(name=model_name, use_gpu=self.use_gpu, **params)
-        elif model_name == 'catboost':
-            return CatBoostModel(name=model_name, use_gpu=self.use_gpu, **params)
-        elif model_name == 'linear_regression':
-            return LinearRegressionModel(name=model_name, **params)
-        elif model_name == 'simple_cnn':
-            return SimpleCNN(name=model_name, use_gpu=self.use_gpu, **params)
-        elif model_name == 'deep_cnn':
-            return DeepCNN(name=model_name, use_gpu=self.use_gpu, **params)
-        elif model_name == 'residual_cnn':
-            return ResidualCNN(name=model_name, use_gpu=self.use_gpu, **params)
-        else:
-            raise ValueError(f"Model creation not implemented for: {model_name}")
+        Args:
+            name: Name of the model
+            
+        Returns:
+            Model instance
+        """
+        if name not in self._models:
+            raise ValueError(f"Model '{name}' not found. Available: {list(self._models.keys())}")
+        return self._models[name]
+    
+    def remove_model(self, name: str) -> 'ModelManager':
+        """
+        Remove a model from the manager.
+        
+        Args:
+            name: Name of the model to remove
+            
+        Returns:
+            Self for method chaining
+        """
+        if name in self._models:
+            del self._models[name]
+            if self.verbose:
+                print(f"  ✓ Removed model: {name}")
+        return self
+    
+    def clear_models(self) -> 'ModelManager':
+        """
+        Remove all models from the manager.
+        
+        Returns:
+            Self for method chaining
+        """
+        self._models.clear()
+        if self.verbose:
+            print("  ✓ Cleared all models")
+        return self
     
     def create_models(self, model_names: Optional[List[str]] = None) -> Dict[str, BaseModel]:
         """
-        Create multiple model instances.
+        Create multiple model instances (legacy method, prefer add_model).
         
         Args:
             model_names: List of model names to create (None = all enabled models)
@@ -200,19 +318,18 @@ class ModelManager:
         if model_names is None:
             model_names = self.get_enabled_models()
         
-        models = {}
         for name in model_names:
             try:
-                models[name] = self.create_model(name)
-                print(f"✓ Created model: {name}")
+                self.add_model(name)
             except Exception as e:
-                print(f"✗ Failed to create {name}: {e}")
+                if self.verbose:
+                    print(f"✗ Failed to create {name}: {e}")
         
-        return models
+        return self.get_models()
     
-    def get_models(self) -> Dict[str, Dict[str, Any]]:
+    def get_model_configs(self) -> Dict[str, Dict[str, Any]]:
         """
-        Get enabled model configurations.
+        Get enabled model configurations (not instances).
         
         Returns:
             Dictionary of enabled models with their parameters
@@ -222,23 +339,29 @@ class ModelManager:
             if config['enabled']
         }
         
-        print(f"✓ Loaded {len(enabled_models)} enabled model configs")
+        if self.verbose:
+            print(f"✓ Found {len(enabled_models)} enabled model configs")
         return enabled_models
     
-    def enable_model(self, model_name: str, enabled: bool = True):
+    def enable_model(self, model_name: str, enabled: bool = True) -> 'ModelManager':
         """
-        Enable or disable a model.
+        Enable or disable a model in config.
         
         Args:
             model_name: Name of the model
             enabled: True to enable, False to disable
+            
+        Returns:
+            Self for method chaining
         """
         if model_name not in self.model_config:
             raise ValueError(f"Unknown model: {model_name}")
         
         self.model_config[model_name]['enabled'] = enabled
-        status = "enabled" if enabled else "disabled"
-        print(f"✓ Model '{model_name}' {status}")
+        if self.verbose:
+            status = "enabled" if enabled else "disabled"
+            print(f"✓ Model '{model_name}' {status}")
+        return self
     
     def get_enabled_models(self) -> List[str]:
         """Get list of enabled model names."""
@@ -264,15 +387,17 @@ class ModelManager:
         models_dir = save_dir / 'models'
         models_dir.mkdir(parents=True, exist_ok=True)
         
-        print(f"\n{'='*70}")
-        print(f"SAVING MODELS TO: {models_dir}")
-        print(f"{'='*70}")
+        if self.verbose:
+            print(f"\n{'='*70}")
+            print(f"SAVING MODELS TO: {models_dir}")
+            print(f"{'='*70}")
         
         # Save each model
         for model_name, model in models.items():
             model_path = models_dir / f"{model_name}.joblib"
             joblib.dump(model, model_path)
-            print(f"✓ Saved {model_name}")
+            if self.verbose:
+                print(f"✓ Saved {model_name}")
         
         # Save metadata
         if metadata is None:
@@ -286,10 +411,10 @@ class ModelManager:
         
         metadata_path = save_dir / "metadata.joblib"
         joblib.dump(metadata, metadata_path)
-        print(f"✓ Saved metadata")
-        
-        print(f"\n✓ Saved {len(models)} models successfully")
-        print(f"{'='*70}\n")
+        if self.verbose:
+            print(f"✓ Saved metadata")
+            print(f"\n✓ Saved {len(models)} models successfully")
+            print(f"{'='*70}\n")
         
         return str(models_dir)
     
@@ -309,9 +434,10 @@ class ModelManager:
         if not models_dir.exists():
             raise ValueError(f"Models directory not found: {models_dir}")
         
-        print(f"\n{'='*70}")
-        print(f"LOADING MODELS FROM: {models_dir}")
-        print(f"{'='*70}")
+        if self.verbose:
+            print(f"\n{'='*70}")
+            print(f"LOADING MODELS FROM: {models_dir}")
+            print(f"{'='*70}")
         
         # Load metadata
         metadata_path = load_dir / "metadata.joblib"
@@ -322,18 +448,32 @@ class ModelManager:
         for model_file in models_dir.glob("*.joblib"):
             model_name = model_file.stem
             models[model_name] = joblib.load(model_file)
-            print(f"✓ Loaded {model_name}")
+            if self.verbose:
+                print(f"✓ Loaded {model_name}")
         
-        print(f"\n✓ Loaded {len(models)} models successfully")
-        print(f"{'='*70}\n")
+        if self.verbose:
+            print(f"\n✓ Loaded {len(models)} models successfully")
+            print(f"{'='*70}\n")
         
         return models, metadata
     
     def print_config(self):
-        """Print current model configuration."""
+        """Print current model configuration and added models."""
         print("\n" + "="*70)
-        print("MODEL CONFIGURATION")
+        print("MODEL MANAGER STATUS")
         print("="*70)
+        
+        # Show added models
+        if self._models:
+            print(f"\nAdded models ({len(self._models)}):")
+            for name in self._models.keys():
+                print(f"  ✓ {name}")
+        else:
+            print("\nNo models added yet.")
+        
+        print("\n" + "-"*70)
+        print("AVAILABLE MODEL TYPES")
+        print("-"*70)
         
         enabled = []
         disabled = []
@@ -468,6 +608,42 @@ class ModelManager:
         # Wrap in BaseModel using module-level wrapper
         return LSTMModelWrapper(model, name)
     
+    def add_predefined_model(self,
+                             architecture_name: str,
+                             name: str,
+                             input_shape: tuple,
+                             num_classes: int,
+                             learning_rate: float = 0.001) -> 'ModelManager':
+        """
+        Add a predefined architecture model to the manager.
+        
+        Args:
+            architecture_name: Name of predefined architecture (e.g., 'simple_cnn_small', 'lstm_medium')
+            name: Custom name for the model
+            input_shape: Input shape for the model
+            num_classes: Number of output classes
+            learning_rate: Learning rate
+            
+        Returns:
+            Self for method chaining
+            
+        Example:
+            >>> mgr = ModelManager()
+            >>> mgr.add_predefined_model('simple_cnn_small', 'CNN_Small', (100, 1), 3)
+            >>> mgr.add_predefined_model('lstm_medium', 'LSTM_Med', (100, 1), 3)
+            >>> models = mgr.get_models()
+        """
+        try:
+            model = self.create_from_predefined(architecture_name, name, input_shape, num_classes, learning_rate)
+            self._models[name] = model
+            if self.verbose:
+                print(f"  ✓ Added model: {name} ({architecture_name})")
+        except Exception as e:
+            if self.verbose:
+                print(f"  ✗ Failed to add {name}: {e}")
+            raise
+        return self
+    
     def create_from_predefined(self,
                                architecture_name: str,
                                name: str,
@@ -475,7 +651,7 @@ class ModelManager:
                                num_classes: int,
                                learning_rate: float = 0.001) -> BaseModel:
         """
-        Create a model from predefined architecture.
+        Create a model from predefined architecture without storing it.
         
         Args:
             architecture_name: Name of predefined architecture
@@ -559,6 +735,23 @@ class ModelManager:
             return HybridModelWrapper(model, name)
         else:
             raise ValueError(f"Unknown architecture type: {arch_type}")
+    
+    def list_available_models(self) -> List[str]:
+        """
+        Get list of all available model types that can be added.
+        
+        Returns:
+            List of model type names
+        """
+        return list(self.model_config.keys())
+    
+    def __len__(self) -> int:
+        """Return number of added models."""
+        return len(self._models)
+    
+    def __contains__(self, name: str) -> bool:
+        """Check if a model with given name exists."""
+        return name in self._models
     
     def list_predefined_architectures(self):
         """

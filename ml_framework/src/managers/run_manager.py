@@ -17,22 +17,34 @@ class RunManager:
     Manages experiment runs with organized artifact storage.
     
     Directory structure:
-        models/YYYYMMDD_HHMMSS/
+        results/YYYYMMDD_HHMMSS/
         ├── models/           # Trained models (.joblib)
         ├── scalers/          # Fitted scalers (.joblib)
         ├── features/         # Feature selector and importance (.joblib, .csv)
         ├── datasets/         # Train/Val/Test splits (.parquet)
         ├── reports/          # HTML visualization reports
         └── metadata.json     # Run configuration and metrics
+    
+    Example:
+        >>> run_mgr = RunManager(base_dir='results', verbose=False)
+        >>> run_mgr.initialize()
+        >>> run_mgr.save_models(trained_models, metrics=model_metrics)
+        >>> run_mgr.save_scaler(scaler)
+        >>> run_mgr.save_config(config_dict)
+        >>> 
+        >>> # Load from existing run
+        >>> run_mgr = RunManager.load('results/20231201_120000')
+        >>> models = run_mgr.load_models()
     """
     
-    def __init__(self, base_dir: str = 'models', run_name: Optional[str] = None):
+    def __init__(self, base_dir: str = 'results', run_name: Optional[str] = None, verbose: bool = True):
         """
         Initialize RunManager.
         
         Args:
-            base_dir: Base directory for all runs (default: 'models')
+            base_dir: Base directory for all runs (default: 'results')
             run_name: Optional custom run name (default: timestamp)
+            verbose: If True, print status messages (default: True)
         """
         self.base_dir = Path(base_dir)
         self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -55,22 +67,25 @@ class RunManager:
         }
         
         self._initialized = False
+        self.verbose = verbose
     
     def initialize(self) -> 'RunManager':
         """Create directory structure for the run."""
         if self._initialized:
             return self
             
-        print(f"\n{'='*70}")
-        print(f"INITIALIZING RUN: {self.run_name}")
-        print(f"{'='*70}")
+        if self.verbose:
+            print(f"\n{'='*70}")
+            print(f"INITIALIZING RUN: {self.run_name}")
+            print(f"{'='*70}")
         
         # Create all directories
         for dir_path in [self.models_dir, self.scalers_dir, self.features_dir, 
                          self.datasets_dir, self.reports_dir]:
             dir_path.mkdir(parents=True, exist_ok=True)
         
-        print(f"✓ Run directory: {self.run_dir}")
+        if self.verbose:
+            print(f"✓ Run directory: {self.run_dir}")
         self._initialized = True
         return self
     
@@ -87,14 +102,16 @@ class RunManager:
         """
         self.initialize()
         
-        print(f"\nSaving {len(models)} models...")
+        if self.verbose:
+            print(f"\nSaving {len(models)} models...")
         
         saved_models = []
         for name, model in models.items():
             model_path = self.models_dir / f"{name}.joblib"
             joblib.dump(model, model_path)
             saved_models.append(name)
-            print(f"  ✓ {name}")
+            if self.verbose:
+                print(f"  ✓ {name}")
         
         # Update metadata
         self.metadata['artifacts']['models'] = {
@@ -135,7 +152,8 @@ class RunManager:
             scaler_data = {'scaler': scaler, 'scaler_type': type(scaler).__name__}
         
         joblib.dump(scaler_data, scaler_path)
-        print(f"✓ Saved scaler: {scaler_path.name}")
+        if self.verbose:
+            print(f"✓ Saved scaler: {scaler_path.name}")
         
         self.metadata['artifacts']['scaler'] = {
             'name': scaler_name,
@@ -171,7 +189,8 @@ class RunManager:
         importance_df = feature_importance.reset_index()
         importance_df.columns = ['feature', 'importance']
         importance_df.to_csv(self.features_dir / 'feature_importance.csv', index=False)
-        print(f"✓ Saved feature importance CSV")
+        if self.verbose:
+            print(f"✓ Saved feature importance CSV")
         
         # Save full selector data as joblib
         selector_data = {
@@ -182,7 +201,8 @@ class RunManager:
             'selector': selector
         }
         joblib.dump(selector_data, self.features_dir / 'feature_selector.joblib')
-        print(f"✓ Saved feature selector")
+        if self.verbose:
+            print(f"✓ Saved feature selector")
         
         # Update metadata
         self.metadata['artifacts']['features'] = {
@@ -215,7 +235,8 @@ class RunManager:
         """
         self.initialize()
         
-        print(f"\nSaving datasets...")
+        if self.verbose:
+            print(f"\nSaving datasets...")
         
         dataset_info = {}
         
@@ -224,7 +245,8 @@ class RunManager:
         train_df['target'] = y_train.values
         train_df.to_parquet(self.datasets_dir / 'train.parquet')
         dataset_info['train'] = {'rows': len(train_df), 'features': len(X_train.columns)}
-        print(f"  ✓ train.parquet ({len(train_df)} rows)")
+        if self.verbose:
+            print(f"  ✓ train.parquet ({len(train_df)} rows)")
         
         # Save validation data
         if X_val is not None and y_val is not None:
@@ -232,7 +254,8 @@ class RunManager:
             val_df['target'] = y_val.values
             val_df.to_parquet(self.datasets_dir / 'val.parquet')
             dataset_info['val'] = {'rows': len(val_df), 'features': len(X_val.columns)}
-            print(f"  ✓ val.parquet ({len(val_df)} rows)")
+            if self.verbose:
+                print(f"  ✓ val.parquet ({len(val_df)} rows)")
         
         # Save test data
         if X_test is not None and y_test is not None:
@@ -240,13 +263,15 @@ class RunManager:
             test_df['target'] = y_test.values
             test_df.to_parquet(self.datasets_dir / 'test.parquet')
             dataset_info['test'] = {'rows': len(test_df), 'features': len(X_test.columns)}
-            print(f"  ✓ test.parquet ({len(test_df)} rows)")
+            if self.verbose:
+                print(f"  ✓ test.parquet ({len(test_df)} rows)")
         
         # Save full DataFrame if provided
         if df_full is not None:
             df_full.to_parquet(self.datasets_dir / 'full_data.parquet')
             dataset_info['full'] = {'rows': len(df_full), 'columns': len(df_full.columns)}
-            print(f"  ✓ full_data.parquet ({len(df_full)} rows)")
+            if self.verbose:
+                print(f"  ✓ full_data.parquet ({len(df_full)} rows)")
         
         # Save feature names
         feature_names = X_train.columns.tolist()
@@ -278,7 +303,8 @@ class RunManager:
         with open(config_path, 'w') as f:
             json.dump(config, f, indent=2, default=str)
         
-        print(f"✓ Saved configuration")
+        if self.verbose:
+            print(f"✓ Saved configuration")
         return config_path
     
     def save_metrics(self, metrics: Dict[str, Any]) -> None:
@@ -291,7 +317,8 @@ class RunManager:
         self.initialize()
         self.metadata['metrics'] = metrics
         self._save_metadata()
-        print(f"✓ Saved metrics")
+        if self.verbose:
+            print(f"✓ Saved metrics")
     
     def _save_metadata(self) -> None:
         """Save metadata to JSON file."""
@@ -354,7 +381,8 @@ class RunManager:
             with open(metadata_path, 'r') as f:
                 instance.metadata = json.load(f)
         
-        print(f"✓ Loaded run: {run_name}")
+        if instance.verbose:
+            print(f"✓ Loaded run: {run_name}")
         return instance
     
     def load_models(self) -> Dict[str, Any]:

@@ -4,6 +4,7 @@ Managers - Core management classes for the ML framework.
 
 from src.managers.model_manager import ModelManager
 from src.managers.train_manager import TrainManager
+from src.managers.test_manager import TestManager
 from src.managers.scaler_manager import ScalerManager
 from src.managers.mlflow_manager import MLFlowManager
 from src.managers.backtest_manager import BacktestManager
@@ -17,6 +18,7 @@ from src.managers.run_manager import RunManager
 __all__ = [
     'ModelManager',
     'TrainManager',
+    'TestManager',
     'ScalerManager',
     'MLFlowManager',
     'BacktestManager',

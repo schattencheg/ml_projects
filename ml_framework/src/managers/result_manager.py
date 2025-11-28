@@ -36,14 +36,28 @@ class ResultManager:
     - Aggregate and compare results
     - Generate comprehensive reports
     - Save results to structured format
+    
+    Example:
+        >>> results = ResultManager(verbose=False)
+        >>> results.add_train_results(train_results)
+        >>> results.add_test_results(test_results)
+        >>> results.add_backtest_results('XGBoost', backtest_results)
+        >>> df = results.compare_models('test')  # Get comparison DataFrame
+        >>> results.print_summary()  # Print formatted summary
     """
     
-    def __init__(self):
-        """Initialize ResultManager."""
+    def __init__(self, verbose: bool = True):
+        """
+        Initialize ResultManager.
+        
+        Args:
+            verbose: If True, print status messages (default: True)
+        """
         self.train_results = {}
         self.test_results = {}
         self.backtest_results = {}
         self.metadata = {}
+        self.verbose = verbose
         
     def add_train_results(self, results: Dict[str, Any], metadata: Optional[Dict] = None):
         """
@@ -56,7 +70,8 @@ class ResultManager:
         self.train_results = results
         if metadata:
             self.metadata.update({'train': metadata})
-        print(f"✓ Added training results for {len(results)} models")
+        if self.verbose:
+            print(f"✓ Added training results for {len(results)} models")
     
     def add_test_results(self, results: Dict[str, Any], metadata: Optional[Dict] = None):
         """
@@ -69,7 +84,8 @@ class ResultManager:
         self.test_results = results
         if metadata:
             self.metadata.update({'test': metadata})
-        print(f"✓ Added test results for {len(results)} models")
+        if self.verbose:
+            print(f"✓ Added test results for {len(results)} models")
     
     def add_backtest_results(self, 
                             model_name: str, 
@@ -88,7 +104,8 @@ class ResultManager:
             if 'backtest' not in self.metadata:
                 self.metadata['backtest'] = {}
             self.metadata['backtest'][model_name] = metadata
-        print(f"✓ Added backtest results for {model_name}")
+        if self.verbose:
+            print(f"✓ Added backtest results for {model_name}")
     
     def get_comprehensive_results(self) -> Dict[str, Any]:
         """
@@ -246,9 +263,10 @@ class ResultManager:
         reports_dir = save_dir / 'reports'
         reports_dir.mkdir(parents=True, exist_ok=True)
         
-        print(f"\n{'='*70}")
-        print(f"SAVING RESULTS TO: {reports_dir}")
-        print(f"{'='*70}")
+        if self.verbose:
+            print(f"\n{'='*70}")
+            print(f"SAVING RESULTS TO: {reports_dir}")
+            print(f"{'='*70}")
         
         # Save train results
         if self.train_results:
@@ -273,15 +291,16 @@ class ResultManager:
         summary_path = reports_dir / 'summary.json'
         with open(summary_path, 'w') as f:
             json.dump(summary, f, indent=2, default=str)
-        print(f"✓ Saved summary")
+        if self.verbose:
+            print(f"✓ Saved summary")
         
         # Save metadata
         metadata_path = save_dir / 'metadata.json'
         with open(metadata_path, 'w') as f:
             json.dump(self.metadata, f, indent=2, default=str)
-        print(f"✓ Saved metadata")
-        
-        print(f"{'='*70}\n")
+        if self.verbose:
+            print(f"✓ Saved metadata")
+            print(f"{'='*70}\n")
     
     def _save_phase_results(self, 
                            results: Dict[str, Any], 
@@ -298,7 +317,8 @@ class ResultManager:
             else:
                 comparison_path = save_dir / f'{phase}_comparison.json'
                 df_comparison.to_json(comparison_path, orient='records', indent=2)
-            print(f"✓ Saved {phase} comparison")
+            if self.verbose:
+                print(f"✓ Saved {phase} comparison")
         
         # Save detailed results
         results_path = save_dir / f'{phase}_results.json'
@@ -313,7 +333,8 @@ class ResultManager:
         
         with open(results_path, 'w') as f:
             json.dump(serializable_results, f, indent=2, default=str)
-        print(f"✓ Saved {phase} detailed results")
+        if self.verbose:
+            print(f"✓ Saved {phase} detailed results")
     
     def _save_backtest_results(self, 
                                results: Dict[str, Any], 
@@ -329,7 +350,8 @@ class ResultManager:
             else:
                 comparison_path = save_dir / 'backtest_comparison.json'
                 df_comparison.to_json(comparison_path, orient='records', indent=2)
-            print(f"✓ Saved backtest comparison")
+            if self.verbose:
+                print(f"✓ Saved backtest comparison")
         
         # Save detailed results for each model
         for model_name, res in results.items():
@@ -343,7 +365,8 @@ class ResultManager:
             with open(results_path, 'w') as f:
                 json.dump(model_results, f, indent=2, default=str)
         
-        print(f"✓ Saved backtest detailed results")
+        if self.verbose:
+            print(f"✓ Saved backtest detailed results")
     
     def prepare_backtest_visualization_data(self, df: pd.DataFrame) -> Dict[str, Any]:
         """

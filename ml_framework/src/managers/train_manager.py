@@ -27,19 +27,26 @@ class TrainManager:
     - Progress tracking
     - Performance metrics
     - Comprehensive results
+    
+    Example:
+        >>> train_mgr = TrainManager(verbose=False)
+        >>> results = train_mgr.train(models, train_data, val_data=val_data)
+        >>> trained_models = train_mgr.get_trained_models()
     """
     
-    def __init__(self, use_scaler: bool = True, scaler_type: str = 'standard'):
+    def __init__(self, use_scaler: bool = True, scaler_type: str = 'standard', verbose: bool = True):
         """
         Initialize TrainManager.
         
         Args:
             use_scaler: Whether to use feature scaling
             scaler_type: Type of scaler to use
+            verbose: If True, print status messages (default: True)
         """
         self.use_scaler = use_scaler
         self.scaler_type = scaler_type
         self.scaler_manager = None
+        self.verbose = verbose
         
         self.trained_models = {}
         self.train_results = {}
@@ -68,9 +75,10 @@ class TrainManager:
         Returns:
             Dictionary with training results
         """
-        print("\n" + "="*70)
-        print("TRAINING MODELS")
-        print("="*70)
+        if self.verbose:
+            print("\n" + "="*70)
+            print("TRAINING MODELS")
+            print("="*70)
         
         # Prepare data
         if feature_cols is None:
@@ -79,16 +87,18 @@ class TrainManager:
         X_train = train_data[feature_cols].values
         y_train = train_data[target_col].values
         
-        print(f"\nTraining dataset:")
-        print(f"  Samples: {len(X_train)}")
-        print(f"  Features: {len(feature_cols)}")
-        print(f"  Target classes: {np.unique(y_train)}")
+        if self.verbose:
+            print(f"\nTraining dataset:")
+            print(f"  Samples: {len(X_train)}")
+            print(f"  Features: {len(feature_cols)}")
+            print(f"  Target classes: {np.unique(y_train)}")
         
         # Scale features
         if scale_features and self.use_scaler:
             self.scaler_manager = ScalerManager(scaler_type=self.scaler_type)
             X_train = self.scaler_manager.fit_transform(train_data[feature_cols]).values
-            print(f"  ✓ Features scaled using {self.scaler_type} scaler")
+            if self.verbose:
+                print(f"  ✓ Features scaled using {self.scaler_type} scaler")
         
         # Prepare validation data if provided
         X_val, y_val = None, None
@@ -97,16 +107,19 @@ class TrainManager:
             y_val = val_data[target_col].values
             if self.scaler_manager is not None:
                 X_val = self.scaler_manager.transform(val_data[feature_cols]).values
-            print(f"  Validation samples: {len(X_val)}")
+            if self.verbose:
+                print(f"  Validation samples: {len(X_val)}")
         
-        print(f"\n{'='*70}")
-        print(f"TRAINING {len(models)} MODELS")
-        print(f"{'='*70}\n")
+        if self.verbose:
+            print(f"\n{'='*70}")
+            print(f"TRAINING {len(models)} MODELS")
+            print(f"{'='*70}\n")
         
         # Train each model
         total_time = 0
         for model_name, model in models.items():
-            print(f"Training {model_name}...", end=' ')
+            if self.verbose:
+                print(f"Training {model_name}...", end=' ')
             start_time = time.time()
             
             try:
@@ -135,14 +148,16 @@ class TrainManager:
                 }
                 
                 total_time += training_time
-                print(f"✓ Completed in {training_time:.2f}s")
-                print(f"  Train accuracy: {train_accuracy:.4f}")
-                if val_accuracy is not None:
-                    print(f"  Val accuracy:   {val_accuracy:.4f}")
-                print()
+                if self.verbose:
+                    print(f"✓ Completed in {training_time:.2f}s")
+                    print(f"  Train accuracy: {train_accuracy:.4f}")
+                    if val_accuracy is not None:
+                        print(f"  Val accuracy:   {val_accuracy:.4f}")
+                    print()
                 
             except Exception as e:
-                print(f"✗ Failed: {str(e)}\n")
+                if self.verbose:
+                    print(f"✗ Failed: {str(e)}\n")
                 self.train_results[model_name] = {
                     'status': 'failed',
                     'error': str(e)
@@ -152,30 +167,31 @@ class TrainManager:
         successful_models = [name for name, res in self.train_results.items() 
                            if res.get('status') == 'success']
         
-        print(f"{'='*70}")
-        print("TRAINING COMPLETE")
-        print(f"{'='*70}")
-        print(f"Successful models: {len(successful_models)}/{len(models)}")
-        print(f"Total training time: {total_time:.2f} seconds")
-        
-        if successful_models:
-            avg_time = total_time / len(successful_models)
-            print(f"Average time per model: {avg_time:.2f} seconds")
+        if self.verbose:
+            print(f"{'='*70}")
+            print("TRAINING COMPLETE")
+            print(f"{'='*70}")
+            print(f"Successful models: {len(successful_models)}/{len(models)}")
+            print(f"Total training time: {total_time:.2f} seconds")
             
-            # Find best model
-            best_metric = 'val_accuracy' if val_data is not None else 'train_accuracy'
-            valid_results = {name: res for name, res in self.train_results.items() 
-                           if res.get('status') == 'success' and res.get(best_metric) is not None}
-            
-            if valid_results:
-                best_model_name = max(valid_results.items(), 
-                                    key=lambda x: x[1][best_metric])[0]
-                best_accuracy = valid_results[best_model_name][best_metric]
+            if successful_models:
+                avg_time = total_time / len(successful_models)
+                print(f"Average time per model: {avg_time:.2f} seconds")
                 
-                print(f"\nBest model: {best_model_name}")
-                print(f"{best_metric.replace('_', ' ').title()}: {best_accuracy:.4f}")
-        
-        print(f"{'='*70}\n")
+                # Find best model
+                best_metric = 'val_accuracy' if val_data is not None else 'train_accuracy'
+                valid_results = {name: res for name, res in self.train_results.items() 
+                               if res.get('status') == 'success' and res.get(best_metric) is not None}
+                
+                if valid_results:
+                    best_model_name = max(valid_results.items(), 
+                                        key=lambda x: x[1][best_metric])[0]
+                    best_accuracy = valid_results[best_model_name][best_metric]
+                    
+                    print(f"\nBest model: {best_model_name}")
+                    print(f"{best_metric.replace('_', ' ').title()}: {best_accuracy:.4f}")
+            
+            print(f"{'='*70}\n")
         
         return {
             'models': self.trained_models,
@@ -203,9 +219,10 @@ class TrainManager:
         Returns:
             Dictionary with test results for each model
         """
-        print("\n" + "="*70)
-        print("TESTING MODELS")
-        print("="*70)
+        if self.verbose:
+            print("\n" + "="*70)
+            print("TESTING MODELS")
+            print("="*70)
         
         # Use provided models or trained models
         if models is None:
@@ -229,15 +246,17 @@ class TrainManager:
         if scaler_manager is not None:
             X_test = scaler_manager.transform(test_data[feature_cols]).values
         
-        print(f"\nTest dataset:")
-        print(f"  Samples: {len(X_test)}")
-        print(f"  Features: {len(feature_cols)}\n")
+        if self.verbose:
+            print(f"\nTest dataset:")
+            print(f"  Samples: {len(X_test)}")
+            print(f"  Features: {len(feature_cols)}\n")
         
         # Evaluate each model
         for model_name, model in models.items():
-            print(f"{'='*70}")
-            print(f"Model: {model_name.upper()}")
-            print(f"{'='*70}")
+            if self.verbose:
+                print(f"{'='*70}")
+                print(f"Model: {model_name.upper()}")
+                print(f"{'='*70}")
             
             try:
                 # Predictions
@@ -262,25 +281,28 @@ class TrainManager:
                 }
                 
                 # Print metrics
-                print(f"\nPerformance Metrics:")
-                print(f"  Accuracy:  {accuracy:.4f}")
-                print(f"  Precision: {precision:.4f}")
-                print(f"  Recall:    {recall:.4f}")
-                print(f"  F1 Score:  {f1:.4f}")
-                
-                print(f"\nConfusion Matrix:")
-                print(cm)
-                print()
+                if self.verbose:
+                    print(f"\nPerformance Metrics:")
+                    print(f"  Accuracy:  {accuracy:.4f}")
+                    print(f"  Precision: {precision:.4f}")
+                    print(f"  Recall:    {recall:.4f}")
+                    print(f"  F1 Score:  {f1:.4f}")
+                    
+                    print(f"\nConfusion Matrix:")
+                    print(cm)
+                    print()
                 
             except Exception as e:
-                print(f"✗ Testing failed: {str(e)}\n")
+                if self.verbose:
+                    print(f"✗ Testing failed: {str(e)}\n")
                 self.test_results[model_name] = {
                     'status': 'failed',
                     'error': str(e)
                 }
         
         # Summary
-        self._print_test_summary()
+        if self.verbose:
+            self._print_test_summary()
         
         return self.test_results
     

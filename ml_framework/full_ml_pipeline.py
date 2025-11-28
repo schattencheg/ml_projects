@@ -12,7 +12,7 @@ This script demonstrates the complete ML workflow:
 8. Generate comprehensive visualizations
 
 Author: ML Framework
-Date: 2024-11-26
+Date: 2025-11-26
 """
 
 import os
@@ -36,23 +36,35 @@ from src.models_lib import (
     XGBoostModel, CatBoostModel,
     LogisticRegressionModel, RandomForestModel
 )
-from src.backtesting import BacktestNoLib, BacktestBacktrader, BacktestBacktestingPy
-from src.managers.model_manager import ModelManager
-from src.managers.train_manager import TrainManager
-from src.managers.result_manager import ResultManager
-from src.managers.visualization_manager import VisualizationManager
-from src.managers.feature_selector import FeatureSelector
-from src.managers.run_manager import RunManager
-from src.managers.scaler_manager import ScalerManager
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, classification_report
+from src.backtesting import (
+    BacktestNoLib, 
+    BacktestBacktrader, 
+    BacktestBacktestingPy
+)
+from src.managers import (
+    ModelManager,
+    TrainManager,
+    TestManager,
+    ResultManager,
+    VisualizationManager,
+    FeatureSelector,
+    RunManager,
+    ScalerManager
+)
 
 
-def main():
-    """Run complete ML pipeline with all models."""
+def main(verbose: bool = True):
+    """
+    Run complete ML pipeline with all models.
     
-    print("\n" + "="*80)
-    print("FULL ML PIPELINE - ALL MODELS")
-    print("="*80)
+    Args:
+        verbose: If True, print detailed progress (default: True)
+    """
+    
+    if verbose:
+        print("\n" + "="*80)
+        print("FULL ML PIPELINE - ALL MODELS")
+        print("="*80)
     
     #region Configuration
     # ========================================================================
@@ -80,24 +92,26 @@ def main():
     FEATURE_SELECTION_METHOD = 'tree'
     MIN_FEATURES = 5
     
-    print(f"\nConfiguration:")
-    print(f"  Ticker: {TICKER}")
-    print(f"  Period: {START_DATE} to {END_DATE}")
-    print(f"  Interval: {INTERVAL}")
-    print(f"  Target: {NUM_CLASSES}-class classification")
-    print(f"  Future bars: {FUTURE_BARS}, Threshold: {THRESHOLD*100}%")
-    print(f"  Initial Capital: ${INITIAL_CAPITAL:,.2f}")
-    print(f"  Commission: {COMMISSION*100}%")
-    print(f"  Position Size: {POSITION_SIZE*100}%")
+    if verbose:
+        print(f"\nConfiguration:")
+        print(f"  Ticker: {TICKER}")
+        print(f"  Period: {START_DATE} to {END_DATE}")
+        print(f"  Interval: {INTERVAL}")
+        print(f"  Target: {NUM_CLASSES}-class classification")
+        print(f"  Future bars: {FUTURE_BARS}, Threshold: {THRESHOLD*100}%")
+        print(f"  Initial Capital: ${INITIAL_CAPITAL:,.2f}")
+        print(f"  Commission: {COMMISSION*100}%")
+        print(f"  Position Size: {POSITION_SIZE*100}%")
     #endregion
     
     #region Step 1: Load Data
     # ========================================================================
     # STEP 1: LOAD DATA
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 1] LOADING DATA")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("[STEP 1] LOADING DATA")
+        print("="*80)
     
     data_provider = DataProvider(data_dir='data')
     df = data_provider.load_yahoo(
@@ -108,18 +122,20 @@ def main():
         use_cache=True
     )
     
-    print(f"\n✓ Data loaded: {len(df)} rows")
-    print(f"  Date range: {df.index[0]} to {df.index[-1]}")
-    print(f"  Columns: {list(df.columns)}")
+    if verbose:
+        print(f"\n✓ Data loaded: {len(df)} rows")
+        print(f"  Date range: {df.index[0]} to {df.index[-1]}")
+        print(f"  Columns: {list(df.columns)}")
     #endregion
     
     #region Step 2: Generate Features
     # ========================================================================
     # STEP 2: GENERATE FEATURES
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 2] GENERATING FEATURES")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("[STEP 2] GENERATING FEATURES")
+        print("="*80)
     
     features_gen = FeaturesGenerator()
     #df_features = features_gen.generate_features(df, feature_set='advanced')
@@ -135,28 +151,30 @@ def main():
     
     feature_cols = features_gen.get_feature_names()
     
-    print(f"\n✓ Features generated: {len(feature_cols)} features")
-    print(f"✓ Dataset ready: {len(df_features)} rows")
-    print(f"\nFeature list:")
-    for i, col in enumerate(feature_cols, 1):
-        print(f"  {i:2d}. {col}")
-    
-    # Target distribution
-    print(f"\nTarget distribution:")
-    target_counts = df_features['target'].value_counts().sort_index()
-    for label, count in target_counts.items():
-        pct = count / len(df_features) * 100
-        label_name = {-1: 'Down', 0: 'Neutral', 1: 'Up'}.get(label, str(label))
-        print(f"  {label_name:8s} ({label:+d}): {count:5d} ({pct:5.1f}%)")
+    if verbose:
+        print(f"\n✓ Features generated: {len(feature_cols)} features")
+        print(f"✓ Dataset ready: {len(df_features)} rows")
+        print(f"\nFeature list:")
+        for i, col in enumerate(feature_cols, 1):
+            print(f"  {i:2d}. {col}")
+        
+        # Target distribution
+        print(f"\nTarget distribution:")
+        target_counts = df_features['target'].value_counts().sort_index()
+        for label, count in target_counts.items():
+            pct = count / len(df_features) * 100
+            label_name = {-1: 'Down', 0: 'Neutral', 1: 'Up'}.get(label, str(label))
+            print(f"  {label_name:8s} ({label:+d}): {count:5d} ({pct:5.1f}%)")
     #endregion
     
     #region Step 3: Split Data
     # ========================================================================
     # STEP 3: SPLIT DATA (Temporal)
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 3] SPLITTING DATA (TEMPORAL)")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("[STEP 3] SPLITTING DATA (TEMPORAL)")
+        print("="*80)
     
     train_df, val_df, test_df = data_provider.split_data(
         df_features,
@@ -171,36 +189,40 @@ def main():
     X_test = test_df[feature_cols].values
     y_test = test_df['target'].values
     
-    print(f"\n✓ Data split (temporal):")
-    print(f"  Train: {len(train_df):5d} samples ({train_df.index[0]} to {train_df.index[-1]})")
-    print(f"  Val:   {len(val_df):5d} samples ({val_df.index[0]} to {val_df.index[-1]})")
-    print(f"  Test:  {len(test_df):5d} samples ({test_df.index[0]} to {test_df.index[-1]})")
+    if verbose:
+        print(f"\n✓ Data split (temporal):")
+        print(f"  Train: {len(train_df):5d} samples ({train_df.index[0]} to {train_df.index[-1]})")
+        print(f"  Val:   {len(val_df):5d} samples ({val_df.index[0]} to {val_df.index[-1]})")
+        print(f"  Test:  {len(test_df):5d} samples ({test_df.index[0]} to {test_df.index[-1]})")
     #endregion
     
     #region Step 4: Initialize Run Manager
     # ========================================================================
     # STEP 4: INITIALIZE RUN MANAGER
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 4] INITIALIZING RUN MANAGER")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("[STEP 4] INITIALIZING RUN MANAGER")
+        print("="*80)
     
-    run_manager = RunManager(base_dir='results')
+    run_manager = RunManager(base_dir='results', verbose=verbose)
     run_manager.initialize()
     run_dir = run_manager.get_run_dir()
     
-    print(f"\n✓ Run directory created: {run_dir}")
+    if verbose:
+        print(f"\n✓ Run directory created: {run_dir}")
     #endregion
     
     #region Step 5: Feature Importance Analysis
     # ========================================================================
     # STEP 5: FEATURE IMPORTANCE ANALYSIS
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 5] FEATURE IMPORTANCE ANALYSIS")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("[STEP 5] FEATURE IMPORTANCE ANALYSIS")
+        print("="*80)
     
-    feature_selector = FeatureSelector(method=FEATURE_SELECTION_METHOD)
+    feature_selector = FeatureSelector(method=FEATURE_SELECTION_METHOD, verbose=verbose)
     X_train_df = train_df[feature_cols]
     y_train_series = train_df['target']
     
@@ -210,7 +232,7 @@ def main():
     dropped_features = feature_selector.get_dropped_features()
     
     # Generate feature importance report
-    viz_manager = VisualizationManager()
+    viz_manager = VisualizationManager(verbose=verbose)
     correlation_matrix = X_train_df.corr()
     
     viz_manager.create_feature_importance_report(
@@ -231,16 +253,18 @@ def main():
         method=FEATURE_SELECTION_METHOD
     )
     
-    feature_selector.print_summary()
+    if verbose:
+        feature_selector.print_summary()
     #endregion
     
     #region Step 6: Scale Features
     # ========================================================================
     # STEP 6: SCALE FEATURES
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 6] SCALING FEATURES")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("[STEP 6] SCALING FEATURES")
+        print("="*80)
     
     scaler_manager = ScalerManager(scaler_type='standard')
     X_train_scaled = scaler_manager.fit_transform(X_train)
@@ -250,348 +274,211 @@ def main():
     # Save scaler
     run_manager.save_scaler(scaler_manager)
     
-    print(f"\n✓ Features scaled using StandardScaler")
-    print(f"  Train mean: {X_train_scaled.mean():.6f}")
-    print(f"  Train std:  {X_train_scaled.std():.6f}")
+    if verbose:
+        print(f"\n✓ Features scaled using StandardScaler")
+        print(f"  Train mean: {X_train_scaled.mean():.6f}")
+        print(f"  Train std:  {X_train_scaled.std():.6f}")
     #endregion
     
     #region Step 7: Create All Models Using ModelManager
     # ========================================================================
     # STEP 7: CREATE ALL MODELS USING MODELMANAGER
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 7] CREATING ALL MODELS USING MODELMANAGER")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("[STEP 7] CREATING ALL MODELS USING MODELMANAGER")
+        print("="*80)
     
     # Initialize ModelManager
-    model_manager = ModelManager(results_dir='results', use_gpu=False)
+    model_manager = ModelManager(results_dir='results', use_gpu=False, verbose=verbose)
     
-    # Enable ALL available models
-    model_manager.enable_model('logistic_regression', True)
-    model_manager.enable_model('random_forest', True)
-    model_manager.enable_model('xgboost', True)
-    model_manager.enable_model('catboost', True)
-    model_manager.enable_model('linear_regression', True)
+    # Add traditional ML models
+    if verbose:
+        print("\nAdding traditional ML models...")
     
-    # Print configuration
-    model_manager.print_config()
+    model_manager.add_model('logistic_regression', custom_name='LogisticRegression')
+    model_manager.add_model('linear_regression', custom_name='LinearRegression')
+    model_manager.add_model('random_forest', custom_name='RandomForest', n_jobs=-1)
+    model_manager.add_model('xgboost', custom_name='XGBoost')
     
-    # Create all enabled models
-    models = {}
-    
-    print("\n" + "="*70)
-    print("CREATING TRADITIONAL ML MODELS")
-    print("="*70)
-    
-    # 1. Logistic Regression
-    print("\n  1. Creating Logistic Regression...")
+    # CatBoost (may fail if not installed)
     try:
-        models['LogisticRegression'] = model_manager.create_model('logistic_regression')
-        print("     ✓ Success")
+        model_manager.add_model('catboost', custom_name='CatBoost')
     except Exception as e:
-        print(f"     ✗ Failed: {e}")
+        if verbose:
+            print(f"  ✗ CatBoost not available: {e}")
     
-    # 2. Linear Regression
-    print("  2. Creating Linear Regression...")
+    # Add CNN models (predefined architectures)
+    if verbose:
+        print("\nAdding CNN models...")
+    
+    input_shape = (len(feature_cols), 1)
+    
     try:
-        models['LinearRegression'] = model_manager.create_model('linear_regression')
-        print("     ✓ Success")
+        model_manager.add_predefined_model('simple_cnn_small', 'CNN_Small', input_shape, NUM_CLASSES, 0.001)
     except Exception as e:
-        print(f"     ✗ Failed: {e}")
+        if verbose:
+            print(f"  ✗ CNN_Small failed: {e}")
     
-    # 3. Random Forest
-    print("  3. Creating Random Forest...")
     try:
-        models['RandomForest'] = model_manager.create_model('random_forest', n_jobs=-1)
-        print("     ✓ Success")
+        model_manager.add_predefined_model('simple_cnn_medium', 'CNN_Medium', input_shape, NUM_CLASSES, 0.001)
     except Exception as e:
-        print(f"     ✗ Failed: {e}")
+        if verbose:
+            print(f"  ✗ CNN_Medium failed: {e}")
     
-    # 4. XGBoost
-    print("  4. Creating XGBoost...")
     try:
-        models['XGBoost'] = model_manager.create_model('xgboost')
-        print("     ✓ Success")
+        model_manager.add_predefined_model('simple_cnn_large', 'CNN_Large', input_shape, NUM_CLASSES, 0.0005)
     except Exception as e:
-        print(f"     ✗ Failed: {e}")
+        if verbose:
+            print(f"  ✗ CNN_Large failed: {e}")
     
-    # 5. CatBoost
-    print("  5. Creating CatBoost...")
+    # Add LSTM models (predefined architectures)
+    if verbose:
+        print("\nAdding LSTM models...")
+    
     try:
-        models['CatBoost'] = model_manager.create_model('catboost')
-        print("     ✓ Success")
+        model_manager.add_predefined_model('lstm_small', 'LSTM_Small', input_shape, NUM_CLASSES, 0.001)
     except Exception as e:
-        print(f"     ✗ Failed: {e}")
+        if verbose:
+            print(f"  ✗ LSTM_Small failed: {e}")
     
-    print("\n" + "="*70)
-    print("CREATING CNN MODELS (3 ARCHITECTURES)")
-    print("="*70)
-    
-    # 6. CNN Small
-    print("\n  6. Creating CNN_Small (predefined: simple_cnn_small)...")
     try:
-        models['CNN_Small'] = model_manager.create_from_predefined(
-            architecture_name='simple_cnn_small',
-            name='CNN_Small',
-            input_shape=(len(feature_cols), 1),
-            num_classes=NUM_CLASSES,
-            learning_rate=0.001
-        )
-        print("     ✓ Success - 2 conv layers [32, 64], 1 dense [64]")
+        model_manager.add_predefined_model('lstm_medium', 'LSTM_Medium', input_shape, NUM_CLASSES, 0.001)
     except Exception as e:
-        print(f"     ✗ Failed: {e}")
+        if verbose:
+            print(f"  ✗ LSTM_Medium failed: {e}")
     
-    # 7. CNN Medium
-    print("  7. Creating CNN_Medium (predefined: simple_cnn_medium)...")
     try:
-        models['CNN_Medium'] = model_manager.create_from_predefined(
-            architecture_name='simple_cnn_medium',
-            name='CNN_Medium',
-            input_shape=(len(feature_cols), 1),
-            num_classes=NUM_CLASSES,
-            learning_rate=0.001
-        )
-        print("     ✓ Success - 3 conv layers [64, 128, 256], 2 dense [128, 64]")
+        model_manager.add_predefined_model('lstm_large', 'LSTM_Large', input_shape, NUM_CLASSES, 0.0005)
     except Exception as e:
-        print(f"     ✗ Failed: {e}")
+        if verbose:
+            print(f"  ✗ LSTM_Large failed: {e}")
     
-    # 8. CNN Large
-    print("  8. Creating CNN_Large (predefined: simple_cnn_large)...")
+    # Add Hybrid CNN-LSTM model
+    if verbose:
+        print("\nAdding Hybrid model...")
+    
     try:
-        models['CNN_Large'] = model_manager.create_from_predefined(
-            architecture_name='simple_cnn_large',
-            name='CNN_Large',
-            input_shape=(len(feature_cols), 1),
-            num_classes=NUM_CLASSES,
-            learning_rate=0.0005  # Lower LR for larger model
-        )
-        print("     ✓ Success - 4 conv layers [128, 256, 512, 512], 2 dense [256, 128]")
+        model_manager.add_predefined_model('hybrid_cnn_lstm', 'Hybrid_CNN_LSTM', input_shape, NUM_CLASSES, 0.001)
     except Exception as e:
-        print(f"     ✗ Failed: {e}")
+        if verbose:
+            print(f"  ✗ Hybrid_CNN_LSTM failed: {e}")
     
-    print("\n" + "="*70)
-    print("CREATING LSTM MODELS (3 ARCHITECTURES)")
-    print("="*70)
+    # Get all models
+    models = model_manager.get_models()
     
-    # 9. LSTM Small
-    print("\n  9. Creating LSTM_Small (predefined: lstm_small)...")
-    try:
-        models['LSTM_Small'] = model_manager.create_from_predefined(
-            architecture_name='lstm_small',
-            name='LSTM_Small',
-            input_shape=(len(feature_cols), 1),
-            num_classes=NUM_CLASSES,
-            learning_rate=0.001
-        )
-        print("     ✓ Success - 1 LSTM layer [64], 1 dense [32]")
-    except Exception as e:
-        print(f"     ✗ Failed: {e}")
-    
-    # 10. LSTM Medium
-    print("  10. Creating LSTM_Medium (predefined: lstm_medium)...")
-    try:
-        models['LSTM_Medium'] = model_manager.create_from_predefined(
-            architecture_name='lstm_medium',
-            name='LSTM_Medium',
-            input_shape=(len(feature_cols), 1),
-            num_classes=NUM_CLASSES,
-            learning_rate=0.001
-        )
-        print("     ✓ Success - 2 LSTM layers [128, 64], 2 dense [64, 32]")
-    except Exception as e:
-        print(f"     ✗ Failed: {e}")
-    
-    # 11. LSTM Large
-    print("  11. Creating LSTM_Large (predefined: lstm_large)...")
-    try:
-        models['LSTM_Large'] = model_manager.create_from_predefined(
-            architecture_name='lstm_large',
-            name='LSTM_Large',
-            input_shape=(len(feature_cols), 1),
-            num_classes=NUM_CLASSES,
-            learning_rate=0.0005  # Lower LR for larger model
-        )
-        print("     ✓ Success - 3 LSTM layers [256, 128, 64], 2 dense [128, 64]")
-    except Exception as e:
-        print(f"     ✗ Failed: {e}")
-    
-    print("\n" + "="*70)
-    print("CREATING HYBRID MODEL")
-    print("="*70)
-    
-    # 12. Hybrid CNN-LSTM
-    print("\n  12. Creating Hybrid_CNN_LSTM (predefined: hybrid_cnn_lstm)...")
-    try:
-        models['Hybrid_CNN_LSTM'] = model_manager.create_from_predefined(
-            architecture_name='hybrid_cnn_lstm',
-            name='Hybrid_CNN_LSTM',
-            input_shape=(len(feature_cols), 1),
-            num_classes=NUM_CLASSES,
-            learning_rate=0.001
-        )
-        print("     ✓ Success - 2 conv [64, 128] + 1 LSTM [64], 2 dense [64, 32]")
-    except Exception as e:
-        print(f"     ✗ Failed: {e}")
-    
-    print("\n" + "="*70)
-    print(f"SUMMARY: Created {len(models)} models successfully")
-    print("="*70)
-    print(f"\nModels created:")
-    for i, name in enumerate(models.keys(), 1):
-        print(f"  {i:2d}. {name}")
-    
-    print(f"\n\nAll available predefined architectures:")
-    for arch_name in model_manager.get_predefined_architectures():
-        print(f"  - {arch_name}")
+    if verbose:
+        print("\n" + "="*70)
+        print(f"SUMMARY: Created {len(models)} models successfully")
+        print("="*70)
+        for i, name in enumerate(models.keys(), 1):
+            print(f"  {i:2d}. {name}")
     #endregion
     
     #region Step 8: Train All Models
     # ========================================================================
-    # STEP 8: TRAIN ALL MODELS
+    # STEP 8: TRAIN ALL MODELS USING TRAINMANAGER
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 8] TRAINING ALL MODELS")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("[STEP 8] TRAINING ALL MODELS USING TRAINMANAGER")
+        print("="*80)
     
-    training_results = {}
+    # Initialize TrainManager (scaler already handled in Step 6)
+    train_manager = TrainManager(use_scaler=False, verbose=verbose)
     
-    for name, model in models.items():
-        print(f"\n{'='*60}")
-        print(f"Training {name}...")
-        print(f"{'='*60}")
-        
-        start_time = time.time()
-        
-        try:
-            model.fit(X_train_scaled, y_train)
-            training_time = time.time() - start_time
-            
-            # Training accuracy
-            y_train_pred = model.predict(X_train_scaled)
-            train_accuracy = accuracy_score(y_train, y_train_pred)
-            
-            # Validation accuracy
-            y_val_pred = model.predict(X_val_scaled)
-            val_accuracy = accuracy_score(y_val, y_val_pred)
-            val_f1 = f1_score(y_val, y_val_pred, average='weighted')
-            val_precision = precision_score(y_val, y_val_pred, average='weighted')
-            val_recall = recall_score(y_val, y_val_pred, average='weighted')
-            
-            training_results[name] = {
-                'status': 'success',
-                'training_time': training_time,
-                'train_accuracy': train_accuracy,
-                'val_accuracy': val_accuracy,
-                'val_f1': val_f1,
-                'val_precision': val_precision,
-                'val_recall': val_recall
-            }
-            
-            print(f"  ✓ Training complete in {training_time:.2f}s")
-            print(f"  Training Accuracy:   {train_accuracy:.4f}")
-            print(f"  Validation Accuracy: {val_accuracy:.4f}")
-            print(f"  Validation F1:       {val_f1:.4f}")
-            print(f"  Validation Precision: {val_precision:.4f}")
-            print(f"  Validation Recall:    {val_recall:.4f}")
-            
-        except Exception as e:
-            training_results[name] = {
-                'status': 'failed',
-                'error': str(e)
-            }
-            print(f"  ✗ Training failed: {e}")
+    # Prepare training data with scaled features
+    train_df_scaled = train_df.copy()
+    train_df_scaled[feature_cols] = X_train_scaled
+    
+    val_df_scaled = val_df.copy()
+    val_df_scaled[feature_cols] = X_val_scaled
+    
+    # Train all models using TrainManager
+    train_output = train_manager.train(
+        models=models,
+        train_data=train_df_scaled,
+        target_col='target',
+        feature_cols=feature_cols,
+        val_data=val_df_scaled,
+        scale_features=False  # Already scaled
+    )
+    
+    # Get results
+    training_results = train_manager.get_train_results()
+    trained_models = train_manager.get_trained_models()
     
     # Summary
-    successful_models = {k: v for k, v in training_results.items() if v['status'] == 'success'}
-    print(f"\n✓ Successfully trained {len(successful_models)}/{len(models)} models")
+    successful_models = {k: v for k, v in training_results.items() if v.get('status') == 'success'}
+    if verbose:
+        print(f"\n✓ Successfully trained {len(successful_models)}/{len(models)} models")
     #endregion
     
     #region Step 9: Evaluate All Models on Test Set
     # ========================================================================
-    # STEP 9: EVALUATE ALL MODELS ON TEST SET
+    # STEP 9: EVALUATE ALL MODELS ON TEST SET USING TESTMANAGER
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 9] EVALUATING ALL MODELS ON TEST SET")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("[STEP 9] EVALUATING ALL MODELS ON TEST SET USING TESTMANAGER")
+        print("="*80)
     
-    test_results = {}
+    # Initialize TestManager
+    test_manager = TestManager(verbose=verbose)
     
-    for name, model in models.items():
-        if training_results[name]['status'] != 'success':
-            continue
-            
-        print(f"\n{'='*60}")
-        print(f"Evaluating {name}...")
-        print(f"{'='*60}")
-        
-        try:
-            y_pred = model.predict(X_test_scaled)
-            
-            accuracy = accuracy_score(y_test, y_pred)
-            f1 = f1_score(y_test, y_pred, average='weighted')
-            precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
-            recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
-            
-            test_results[name] = {
-                'accuracy': accuracy,
-                'f1_score': f1,
-                'precision': precision,
-                'recall': recall,
-                'predictions': y_pred
-            }
-            
-            print(f"  Accuracy:  {accuracy:.4f}")
-            print(f"  F1 Score:  {f1:.4f}")
-            print(f"  Precision: {precision:.4f}")
-            print(f"  Recall:    {recall:.4f}")
-            
-            # Classification report
-            print(f"\n  Classification Report:")
-            report = classification_report(y_test, y_pred, target_names=['Down', 'Neutral', 'Up'])
-            for line in report.split('\n'):
-                print(f"    {line}")
-                
-        except Exception as e:
-            print(f"  ✗ Evaluation failed: {e}")
+    # Filter to only successfully trained models
+    models_to_test = {k: v for k, v in trained_models.items() 
+                      if training_results.get(k, {}).get('status') == 'success'}
     
-    # Comparison table
-    print(f"\n{'='*80}")
-    print("MODEL COMPARISON - TEST SET")
-    print(f"{'='*80}")
+    # Prepare test data with scaled features
+    test_df_scaled = test_df.copy()
+    test_df_scaled[feature_cols] = X_test_scaled
     
-    comparison_df = pd.DataFrame(test_results).T
-    comparison_df = comparison_df[['accuracy', 'f1_score', 'precision', 'recall']]
-    comparison_df = comparison_df.sort_values('accuracy', ascending=False)
-    print(comparison_df.to_string())
+    # Test all models using TestManager
+    test_results = test_manager.test(
+        models=models_to_test,
+        test_data=test_df_scaled,
+        target_col='target',
+        feature_cols=feature_cols,
+        X_test_scaled=X_test_scaled,
+        y_test=y_test
+    )
     
-    best_model_name = comparison_df.index[0]
-    print(f"\n🏆 Best model: {best_model_name} (Accuracy: {comparison_df.loc[best_model_name, 'accuracy']:.4f})")
+    # Get comparison DataFrame and best model
+    comparison_df = test_manager.get_comparison_dataframe()
+    best_model_name = test_manager.get_best_model(metric='accuracy')
+    
+    if verbose:
+        print(f"\n{'='*80}")
+        print("MODEL COMPARISON - TEST SET")
+        print(f"{'='*80}")
+        print(comparison_df.to_string())
+        print(f"\n🏆 Best model: {best_model_name} (Accuracy: {comparison_df.loc[best_model_name, 'accuracy']:.4f})")
     #endregion
     
     #region Step 10: Save All Models and Artifacts
     # ========================================================================
     # STEP 10: SAVE ALL MODELS AND ARTIFACTS
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 10] SAVING ALL MODELS AND ARTIFACTS")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("[STEP 10] SAVING ALL MODELS AND ARTIFACTS")
+        print("="*80)
     
     # Prepare metrics for saving
     model_metrics = {}
-    for name in models.keys():
-        if name in test_results:
+    for name in trained_models.keys():
+        if name in test_results and test_results[name].get('status') == 'success':
             model_metrics[name] = {
                 'accuracy': test_results[name]['accuracy'],
                 'f1_score': test_results[name]['f1_score'],
                 'precision': test_results[name]['precision'],
                 'recall': test_results[name]['recall'],
                 'training_time': training_results[name].get('training_time', 0),
-                'val_accuracy': training_results[name].get('val_accuracy', 0),
-                'val_f1': training_results[name].get('val_f1', 0)
+                'val_accuracy': training_results[name].get('val_accuracy', 0)
             }
     
-    # Save models
-    trained_models = {k: v for k, v in models.items() if training_results[k]['status'] == 'success'}
+    # Save models (trained_models already from train_manager)
     run_manager.save_models(models=trained_models, metrics=model_metrics)
     
     # Save datasets
@@ -624,30 +511,34 @@ def main():
     # Save test metrics
     run_manager.save_metrics(test_results)
     
-    print(f"\n✓ All artifacts saved to: {run_dir}")
-    print(f"  - Models: {len(trained_models)}")
-    print(f"  - Scaler: standard")
-    print(f"  - Datasets: train, val, test, full")
-    print(f"  - Feature importance report")
-    print(f"  - Configuration and metrics")
+    if verbose:
+        print(f"\n✓ All artifacts saved to: {run_dir}")
+        print(f"  - Models: {len(trained_models)}")
+        print(f"  - Scaler: standard")
+        print(f"  - Datasets: train, val, test, full")
+        print(f"  - Feature importance report")
+        print(f"  - Configuration and metrics")
     #endregion
     
     #region Step 11: Load Models and Run Backtests
     # ========================================================================
     # STEP 11: LOAD MODELS FROM FOLDER AND RUN BACKTESTS
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 11] LOADING MODELS AND RUNNING BACKTESTS")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("[STEP 11] LOADING MODELS AND RUNNING BACKTESTS")
+        print("="*80)
     
     # Load models from saved folder
-    print(f"\nLoading models from: {run_dir}")
+    if verbose:
+        print(f"\nLoading models from: {run_dir}")
     
     loaded_models = run_manager.load_models()
     loaded_scaler = run_manager.load_scaler()  # Returns sklearn scaler object
     
-    print(f"✓ Loaded {len(loaded_models)} models: {list(loaded_models.keys())}")
-    print(f"✓ Loaded scaler: {type(loaded_scaler).__name__}")
+    if verbose:
+        print(f"✓ Loaded {len(loaded_models)} models: {list(loaded_models.keys())}")
+        print(f"✓ Loaded scaler: {type(loaded_scaler).__name__}")
     
     # Prepare backtest data
     backtest_df = df_features.copy()
@@ -658,17 +549,18 @@ def main():
         if col not in backtest_df.columns and col in df.columns:
             backtest_df[col] = df[col]
     
-    # Run backtests for each model
+    # Run backtests for each model using BacktestNoLib (provides trades for OHLC visualization)
     backtest_results = {}
-    backtester = BacktestNoLib
 
     for model_name, model in loaded_models.items():
-        print(f"\n{'='*60}")
-        print(f"Backtesting {model_name}...")
-        print(f"{'='*60}")
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"Backtesting {model_name}...")
+            print(f"{'='*60}")
         
         try:
-            backtest = backtester(
+            # Use BacktestNoLib directly to get trades for OHLC visualization
+            backtest = BacktestNoLib(
                 initial_capital=INITIAL_CAPITAL,
                 commission=COMMISSION,
                 position_size=POSITION_SIZE,
@@ -679,36 +571,40 @@ def main():
             results = backtest.run(
                 df=backtest_df,
                 model=model,
-                scaler=loaded_scaler,  # Already the sklearn scaler object
+                scaler=loaded_scaler,
                 feature_cols=feature_cols,
                 price_col='close'
             )
             elapsed_time = time.time() - start_time
             
-            backtest.print_results()
+            if verbose:
+                backtest.print_results()
             
             backtest_results[model_name] = {
                 'backtest': backtest,
                 'results': results,
                 'metrics': backtest.get_metrics(),
-                'trades': backtest.get_trades(),
+                'trades': backtest.get_trades(),  # Individual trades for OHLC visualization
                 'execution_time': elapsed_time,
                 'success': True
             }
             
-            print(f"Execution time: {elapsed_time:.2f}s")
+            if verbose:
+                print(f"Execution time: {elapsed_time:.2f}s")
             
         except Exception as e:
-            print(f"  ✗ Backtest failed: {e}")
+            if verbose:
+                print(f"  ✗ Backtest failed: {e}")
             backtest_results[model_name] = {
                 'success': False,
                 'error': str(e)
             }
     
     # Backtest comparison
-    print(f"\n{'='*80}")
-    print("BACKTEST COMPARISON - ALL MODELS")
-    print(f"{'='*80}")
+    if verbose:
+        print(f"\n{'='*80}")
+        print("BACKTEST COMPARISON - ALL MODELS")
+        print(f"{'='*80}")
     
     comparison_data = {}
     for name, result in backtest_results.items():
@@ -726,21 +622,24 @@ def main():
     if comparison_data:
         bt_comparison_df = pd.DataFrame(comparison_data).T
         bt_comparison_df = bt_comparison_df.sort_values('Total Return (%)', ascending=False)
-        print(bt_comparison_df.to_string())
+        if verbose:
+            print(bt_comparison_df.to_string())
         
         best_backtest = bt_comparison_df.index[0]
-        print(f"\n🏆 Best backtest: {best_backtest} (Return: {bt_comparison_df.loc[best_backtest, 'Total Return (%)']:.2f}%)")
+        if verbose:
+            print(f"\n🏆 Best backtest: {best_backtest} (Return: {bt_comparison_df.loc[best_backtest, 'Total Return (%)']:.2f}%)")
     #endregion
     
     #region Step 12: Generate Comprehensive Visualizations
     # ========================================================================
     # STEP 12: GENERATE COMPREHENSIVE VISUALIZATIONS
     # ========================================================================
-    print("\n" + "="*80)
-    print("[STEP 12] GENERATING COMPREHENSIVE VISUALIZATIONS")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("[STEP 12] GENERATING COMPREHENSIVE VISUALIZATIONS")
+        print("="*80)
     
-    results_manager = ResultManager()
+    results_manager = ResultManager(verbose=verbose)
     
     # Add training results
     for name, result in training_results.items():
@@ -795,44 +694,46 @@ def main():
         show=True
     )
     
-    print(f"\n✓ Backtest report generated: {report_path}")
+    if verbose:
+        print(f"\n✓ Backtest report generated: {report_path}")
     #endregion
     
     #region Step 13: Final Summary
     # ========================================================================
     # STEP 13: FINAL SUMMARY
     # ========================================================================
-    print("\n" + "="*80)
-    print("PIPELINE COMPLETE - FINAL SUMMARY")
-    print("="*80)
-    
-    run_manager.print_summary()
-    
-    print(f"\n{'='*80}")
-    print("RESULTS OVERVIEW")
-    print(f"{'='*80}")
-    
-    print(f"\n📊 Data:")
-    print(f"  - Total samples: {len(df_features)}")
-    print(f"  - Features: {len(feature_cols)}")
-    print(f"  - Selected features: {len(selected_features)}")
-    
-    print(f"\n🤖 Models:")
-    print(f"  - Trained: {len(trained_models)}")
-    print(f"  - Best (Test): {best_model_name}")
-    if comparison_data:
-        print(f"  - Best (Backtest): {best_backtest}")
-    
-    print(f"\n📁 Artifacts saved to: {run_dir}")
-    print(f"  - models/")
-    print(f"  - scalers/")
-    print(f"  - datasets/")
-    print(f"  - features/")
-    print(f"  - reports/")
-    
-    print("\n" + "="*80)
-    print("🎉 Full ML Pipeline completed successfully!")
-    print("="*80 + "\n")
+    if verbose:
+        print("\n" + "="*80)
+        print("PIPELINE COMPLETE - FINAL SUMMARY")
+        print("="*80)
+        
+        run_manager.print_summary()
+        
+        print(f"\n{'='*80}")
+        print("RESULTS OVERVIEW")
+        print(f"{'='*80}")
+        
+        print(f"\n📊 Data:")
+        print(f"  - Total samples: {len(df_features)}")
+        print(f"  - Features: {len(feature_cols)}")
+        print(f"  - Selected features: {len(selected_features)}")
+        
+        print(f"\n🤖 Models:")
+        print(f"  - Trained: {len(trained_models)}")
+        print(f"  - Best (Test): {best_model_name}")
+        if comparison_data:
+            print(f"  - Best (Backtest): {best_backtest}")
+        
+        print(f"\n📁 Artifacts saved to: {run_dir}")
+        print(f"  - models/")
+        print(f"  - scalers/")
+        print(f"  - datasets/")
+        print(f"  - features/")
+        print(f"  - reports/")
+        
+        print("\n" + "="*80)
+        print("🎉 Full ML Pipeline completed successfully!")
+        print("="*80 + "\n")
     #endregion
     
     return {

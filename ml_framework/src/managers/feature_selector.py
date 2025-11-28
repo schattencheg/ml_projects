@@ -26,9 +26,16 @@ class FeatureSelector:
     - Automatic feature dropping based on importance
     - Save/load selected features
     - Integration with training pipeline
+    
+    Example:
+        >>> selector = FeatureSelector(method='tree', verbose=False)
+        >>> selector.fit(X_train, y_train)
+        >>> importance = selector.get_feature_importance()
+        >>> selected = selector.get_selected_features()
+        >>> X_selected = selector.transform(X_train)
     """
     
-    def __init__(self, method: Literal['correlation', 'mutual_info', 'tree', 'rfe', 'lasso'] = 'tree'):
+    def __init__(self, method: Literal['correlation', 'mutual_info', 'tree', 'rfe', 'lasso'] = 'tree', verbose: bool = True):
         """
         Initialize FeatureSelector.
         
@@ -39,6 +46,7 @@ class FeatureSelector:
                 - 'tree': Tree-based feature importance
                 - 'rfe': Recursive Feature Elimination
                 - 'lasso': L1-based feature selection
+            verbose: If True, print status messages (default: True)
         """
         self.method = method
         self.selected_features = None
@@ -46,6 +54,7 @@ class FeatureSelector:
         self.dropped_features = None
         self.selector = None
         self.is_fitted = False
+        self.verbose = verbose
         
     def fit(self,
            X: pd.DataFrame,
@@ -66,11 +75,11 @@ class FeatureSelector:
         Returns:
             Self
         """
-        print("\n" + "="*70)
-        print(f"FEATURE SELECTION - Method: {self.method.upper()}")
-        print("="*70)
-        
-        print(f"\nInitial features: {X.shape[1]}")
+        if self.verbose:
+            print("\n" + "="*70)
+            print(f"FEATURE SELECTION - Method: {self.method.upper()}")
+            print("="*70)
+            print(f"\nInitial features: {X.shape[1]}")
         
         if self.method == 'correlation':
             self._fit_correlation(X, y, correlation_threshold)
@@ -87,16 +96,18 @@ class FeatureSelector:
         
         self.is_fitted = True
         
-        print(f"\nSelected features: {len(self.selected_features)}")
-        print(f"Dropped features: {len(self.dropped_features)}")
-        print(f"Reduction: {len(self.dropped_features) / X.shape[1] * 100:.1f}%")
-        print("="*70 + "\n")
+        if self.verbose:
+            print(f"\nSelected features: {len(self.selected_features)}")
+            print(f"Dropped features: {len(self.dropped_features)}")
+            print(f"Reduction: {len(self.dropped_features) / X.shape[1] * 100:.1f}%")
+            print("="*70 + "\n")
         
         return self
     
     def _fit_correlation(self, X: pd.DataFrame, y: pd.Series, threshold: float):
         """Remove highly correlated features."""
-        print(f"\nRemoving features with correlation > {threshold}")
+        if self.verbose:
+            print(f"\nRemoving features with correlation > {threshold}")
         
         # Calculate correlation matrix
         corr_matrix = X.corr().abs()
@@ -116,11 +127,13 @@ class FeatureSelector:
             index=self.selected_features
         ).sort_values(ascending=False)
         
-        print(f"  Dropped {len(to_drop)} highly correlated features")
+        if self.verbose:
+            print(f"  Dropped {len(to_drop)} highly correlated features")
     
     def _fit_mutual_info(self, X: pd.DataFrame, y: pd.Series, n_features: Optional[int], threshold: Optional[float]):
         """Select features based on mutual information."""
-        print(f"\nCalculating mutual information scores...")
+        if self.verbose:
+            print(f"\nCalculating mutual information scores...")
         
         # Calculate mutual information
         mi_scores = mutual_info_classif(X, y, random_state=42)
@@ -138,11 +151,13 @@ class FeatureSelector:
         
         self.dropped_features = [col for col in X.columns if col not in self.selected_features]
         
-        print(f"  Mutual information scores calculated")
+        if self.verbose:
+            print(f"  Mutual information scores calculated")
     
     def _fit_tree_based(self, X: pd.DataFrame, y: pd.Series, n_features: Optional[int], threshold: Optional[float]):
         """Select features based on tree importance."""
-        print(f"\nTraining Random Forest for feature importance...")
+        if self.verbose:
+            print(f"\nTraining Random Forest for feature importance...")
         
         # Train Random Forest
         rf = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
@@ -164,11 +179,13 @@ class FeatureSelector:
         self.dropped_features = [col for col in X.columns if col not in self.selected_features]
         self.selector = rf
         
-        print(f"  Feature importance calculated")
+        if self.verbose:
+            print(f"  Feature importance calculated")
     
     def _fit_rfe(self, X: pd.DataFrame, y: pd.Series, n_features: Optional[int]):
         """Select features using Recursive Feature Elimination."""
-        print(f"\nPerforming Recursive Feature Elimination...")
+        if self.verbose:
+            print(f"\nPerforming Recursive Feature Elimination...")
         
         if n_features is None:
             n_features = max(5, X.shape[1] // 2)  # Select half by default
@@ -191,11 +208,13 @@ class FeatureSelector:
             index=X.columns
         ).sort_values(ascending=False)
         
-        print(f"  RFE completed")
+        if self.verbose:
+            print(f"  RFE completed")
     
     def _fit_lasso(self, X: pd.DataFrame, y: pd.Series, threshold: Optional[float]):
         """Select features using L1-based selection."""
-        print(f"\nPerforming L1-based feature selection...")
+        if self.verbose:
+            print(f"\nPerforming L1-based feature selection...")
         
         from sklearn.linear_model import LogisticRegression
         
@@ -219,7 +238,8 @@ class FeatureSelector:
             index=X.columns
         ).sort_values(ascending=False)
         
-        print(f"  L1-based selection completed")
+        if self.verbose:
+            print(f"  L1-based selection completed")
     
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """
@@ -305,7 +325,8 @@ class FeatureSelector:
         
         if save_path:
             plt.savefig(save_path)
-            print(f"✓ Saved feature importance plot to {save_path}")
+            if self.verbose:
+                print(f"✓ Saved feature importance plot to {save_path}")
         else:
             plt.show()
         
@@ -337,7 +358,8 @@ class FeatureSelector:
         }
         
         joblib.dump(selector_data, selector_path)
-        print(f"✓ Saved feature selector to {selector_path}")
+        if self.verbose:
+            print(f"✓ Saved feature selector to {selector_path}")
     
     @classmethod
     def load(cls, load_dir: Path) -> 'FeatureSelector':
@@ -366,8 +388,7 @@ class FeatureSelector:
         instance.feature_importance = selector_data['feature_importance']
         instance.selector = selector_data['selector']
         instance.is_fitted = selector_data['is_fitted']
-        
-        print(f"✓ Loaded feature selector from {selector_path}")
+        instance.verbose = True  # Default to verbose for loaded instances
         
         return instance
     

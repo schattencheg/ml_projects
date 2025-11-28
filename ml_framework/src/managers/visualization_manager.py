@@ -22,18 +22,34 @@ class VisualizationManager:
     - Separate reports for train/test/backtest
     - Interactive plots using Plotly
     - Jupyter notebook support with inline display
+    
+    Quick Start:
+        >>> viz = VisualizationManager(verbose=False)
+        >>> 
+        >>> # Create and save reports
+        >>> viz.create_backtest_report(backtest_results, save_dir='results')
+        >>> viz.create_feature_importance_report(feature_importance, save_dir='results')
+        >>> 
+        >>> # Display inline (Jupyter)
+        >>> viz.show_backtest_results(backtest_results, df=ohlc_data)
+        >>> viz.show_feature_importance(feature_importance)
+        >>> 
+        >>> # Get figures for custom handling
+        >>> figs = viz.get_backtest_figures(backtest_results)
     """
     
-    def __init__(self, jupyter_mode: Optional[bool] = None):
+    def __init__(self, jupyter_mode: Optional[bool] = None, verbose: bool = True):
         """
         Initialize VisualizationManager.
         
         Args:
             jupyter_mode: If True, optimize for Jupyter display. 
                          If None, auto-detect environment.
+            verbose: If True, print status messages (default: True)
         """
         self.figures = []
         self._jupyter_mode = jupyter_mode if jupyter_mode is not None else self._is_jupyter()
+        self.verbose = verbose
     
     @staticmethod
     def _is_jupyter() -> bool:
@@ -259,9 +275,10 @@ class VisualizationManager:
         Returns:
             Path to saved HTML file
         """
-        print("\n" + "="*70)
-        print("GENERATING TRAINING VISUALIZATION REPORT")
-        print("="*70)
+        if self.verbose:
+            print("\n" + "="*70)
+            print("GENERATING TRAINING VISUALIZATION REPORT")
+            print("="*70)
         
         save_dir = Path(save_dir) / 'reports' / 'train'
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -273,7 +290,8 @@ class VisualizationManager:
                             if res.get('status') == 'success'}
         
         if not successful_results:
-            print("No successful training results to visualize")
+            if self.verbose:
+                print("No successful training results to visualize")
             return ""
         
         # 1. Training Accuracy Comparison
@@ -293,10 +311,11 @@ class VisualizationManager:
         html_path = save_dir / 'train_report.html'
         self._save_html_report(figures, html_path, "Training Results Report", show=show)
         
-        print(f"✓ Saved training report: {html_path}")
-        if show:
-            print(f"🎉 Opening report in browser...")
-        print("="*70 + "\n")
+        if self.verbose:
+            print(f"✓ Saved training report: {html_path}")
+            if show:
+                print(f"🎉 Opening report in browser...")
+            print("="*70 + "\n")
         
         return str(html_path)
     
@@ -315,9 +334,10 @@ class VisualizationManager:
         Returns:
             Path to saved HTML file
         """
-        print("\n" + "="*70)
-        print("GENERATING TEST VISUALIZATION REPORT")
-        print("="*70)
+        if self.verbose:
+            print("\n" + "="*70)
+            print("GENERATING TEST VISUALIZATION REPORT")
+            print("="*70)
         
         save_dir = Path(save_dir) / 'reports' / 'test'
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -329,7 +349,8 @@ class VisualizationManager:
                             if res.get('status') == 'success'}
         
         if not successful_results:
-            print("No successful test results to visualize")
+            if self.verbose:
+                print("No successful test results to visualize")
             return ""
         
         # 1. Metrics Comparison (Accuracy, Precision, Recall, F1)
@@ -351,10 +372,11 @@ class VisualizationManager:
         html_path = save_dir / 'test_report.html'
         self._save_html_report(figures, html_path, "Test Results Report", show=show)
         
-        print(f"✓ Saved test report: {html_path}")
-        if show:
-            print(f"🎉 Opening report in browser...")
-        print("="*70 + "\n")
+        if self.verbose:
+            print(f"✓ Saved test report: {html_path}")
+            if show:
+                print(f"🎉 Opening report in browser...")
+            print("="*70 + "\n")
         
         return str(html_path)
     
@@ -381,9 +403,10 @@ class VisualizationManager:
         Returns:
             Path to saved HTML file
         """
-        print("\n" + "="*70)
-        print("GENERATING FEATURE IMPORTANCE REPORT")
-        print("="*70)
+        if self.verbose:
+            print("\n" + "="*70)
+            print("GENERATING FEATURE IMPORTANCE REPORT")
+            print("="*70)
         
         save_dir = Path(save_dir) / 'reports' / 'features'
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -422,10 +445,11 @@ class VisualizationManager:
         html_path = save_dir / 'feature_importance_report.html'
         self._save_html_report(figures, html_path, "Feature Importance Analysis Report", show=show)
         
-        print(f"✓ Saved feature importance report: {html_path}")
-        if show:
-            print(f"🎉 Opening report in browser...")
-        print("="*70 + "\n")
+        if self.verbose:
+            print(f"✓ Saved feature importance report: {html_path}")
+            if show:
+                print(f"🎉 Opening report in browser...")
+            print("="*70 + "\n")
         
         return str(html_path)
     
@@ -635,9 +659,10 @@ class VisualizationManager:
         Returns:
             Path to saved HTML file
         """
-        print("\n" + "="*70)
-        print("GENERATING BACKTEST VISUALIZATION REPORT")
-        print("="*70)
+        if self.verbose:
+            print("\n" + "="*70)
+            print("GENERATING BACKTEST VISUALIZATION REPORT")
+            print("="*70)
         
         save_dir = Path(save_dir) / 'reports' / 'backtest'
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -645,7 +670,8 @@ class VisualizationManager:
         figures = []
         
         if not backtest_results:
-            print("No backtest results to visualize")
+            if self.verbose:
+                print("No backtest results to visualize")
             return ""
         
         # 1. Train/Test/Val Results Table (if available)
@@ -687,10 +713,11 @@ class VisualizationManager:
         summary_html = self._generate_summary_html(backtest_results, test_results, train_results)
         self._save_html_report_with_summary(figures, html_path, "Backtest Results Report", summary_html, show=show)
         
-        print(f"✓ Saved backtest report: {html_path}")
-        if show:
-            print(f"🎉 Opening report in browser...")
-        print("="*70 + "\n")
+        if self.verbose:
+            print(f"✓ Saved backtest report: {html_path}")
+            if show:
+                print(f"🎉 Opening report in browser...")
+            print("="*70 + "\n")
         
         return str(html_path)
     
