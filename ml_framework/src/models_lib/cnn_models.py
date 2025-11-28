@@ -59,6 +59,14 @@ class BaseCNN(BaseModel):
         fit_params = {'epochs': self.epochs, 'batch_size': self.batch_size,
                       'validation_split': 0.2, 'verbose': 0}
         fit_params.update(kwargs)
+        
+        # Compute class weights if not provided to handle class imbalance
+        if 'class_weight' not in fit_params:
+            unique, counts = np.unique(y, return_counts=True)
+            total = len(y)
+            # Inverse frequency weighting
+            fit_params['class_weight'] = {cls: total / (len(unique) * count) for cls, count in zip(unique, counts)}
+        
         self.model.fit(X, y, **fit_params)
     
     def _predict(self, X: np.ndarray, **kwargs) -> np.ndarray:

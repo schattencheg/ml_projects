@@ -88,6 +88,11 @@ class BacktestNoLib(BaseBacktest):
         # Get predictions
         predictions = model.predict(X_scaled)
         
+        # Debug: show prediction distribution
+        unique, counts = np.unique(predictions, return_counts=True)
+        print(f"  Predictions distribution: {dict(zip(unique, counts))}")
+        print(f"  Model: {model.name}, Total predictions: {len(predictions)}")
+        
         # Initialize tracking variables
         capital = self.initial_capital
         position = 0  # Number of shares (positive=long, negative=short)
